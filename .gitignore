@@ -1,0 +1,12 @@
+# Local SQLite database (use a Railway Volume in production)
+dedup.db
+dedup.db-wal
+dedup.db-shm
+
+# Dev-only generated session secret (set DEDUP_SECRET in prod instead)
+.secret
+
+# OS / editor
+.DS_Store
+__pycache__/
+*.pyc

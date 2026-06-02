@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deduplication Platform</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<!-- Each view is fully rendered by its JS module. Only one is visible at a time. -->
+<div id="viewAuth"      class="view"></div>
+<div id="viewDashboard" class="view" style="display:none;"></div>
+<div id="viewProject"   class="view" style="display:none;"></div>
+
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="js/stage1-prefilter.js"></script>
+<script src="js/stage2-llm.js"></script>
+<script src="js/stage3-cluster.js"></script>
+<script src="js/file-loader.js"></script>
+<script src="js/project.js"></script>
+<script src="js/router.js"></script>
+</body>
+</html>
