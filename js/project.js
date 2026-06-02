@@ -60,10 +60,12 @@ async function openProject(projectId) {
     recomputeBlocks();
     state.groups = d.groups || [];
     state.decisions = d.decisions || {};
-    state.removedIds = new Set(d.removed_ids || []);
+    migrateDecisions();              // upgrade any legacy decision shapes
+    recomputeRemoved();              // derive removed set from decisions (consistent)
     state.fileName = d.file_name || '';
     state.currentBlock = 'all';
     state.currentGroupIdx = 0;
+    draft = { gi: null, removed: new Set() };
     // pick a sensible starting tab
     state.tab = PROJECT.status === 'completed' ? 'result'
               : (state.groups.length ? 'review' : 'issues');
@@ -314,6 +316,7 @@ function onDataLoaded(parsedRows, fileName) {
   state.groups = [];
   state.decisions = {};
   state.removedIds = new Set();
+  draft = { gi: null, removed: new Set() };
   PROJECT.status = 'draft';
   saveProjectData(true);
   updateHeader();
@@ -385,6 +388,7 @@ async function startAnalysis() {
   state.groups = finalizeGroups(rawGroups);
   state.decisions = {};
   state.removedIds = new Set();
+  draft = { gi: null, removed: new Set() };
   const dup = state.groups.reduce((s,g)=>s+g.duplicates.length,0);
   log(`  → ${state.groups.length} final groups · ${dup} duplicates to remove`, 'done');
   bar.style.width = '100%';
@@ -401,11 +405,50 @@ async function startAnalysis() {
 // TAB 2 — DUPLICATE REVIEW
 // ═══════════════════════════════════════════════════════════════
 
+// Working keep/remove selection for the group currently on screen (committed via Apply).
+let draft = { gi: null, removed: new Set() };
+
 function getFilteredIndices() {
   const all = state.groups.map((_, i) => i);
   if (state.currentBlock === '__review__') return all.filter(i => state.groups[i].needsReview && !state.decisions[i]);
   if (state.currentBlock !== 'all') return all.filter(i => state.groups[i].block === state.currentBlock);
   return all;
+}
+
+// Building-block filter bar for the review tab. Each pill shows the number of
+// groups still PENDING in that block — so a team can split the work by block.
+function reviewBlockPills() {
+  const perBlock = {};
+  state.groups.forEach((g, i) => {
+    const b = g.block;
+    perBlock[b] = perBlock[b] || { total: 0, pending: 0 };
+    perBlock[b].total++;
+    if (!state.decisions[i]) perBlock[b].pending++;
+  });
+  const totalPending = state.groups.filter((_, i) => !state.decisions[i]).length;
+  const needsReview = state.groups.filter((g, i) => g.needsReview && !state.decisions[i]).length;
+
+  const pill = (key, label, count, extra = '') =>
+    `<div class="pill ${state.currentBlock === key ? 'active' : ''}" ${extra}
+          onclick="setReviewBlock(${JSON.stringify(key)})">
+       ${escapeHtml(label)} <span class="pill-count">${count}</span>
+     </div>`;
+
+  let html = pill('all', 'All blocks', totalPending);
+  Object.keys(perBlock).sort().forEach(b => {
+    html += pill(b, b.replace(/^\d+\.\s*/, ''), perBlock[b].pending);
+  });
+  if (needsReview > 0) {
+    html += pill('__review__', '⚠ Needs review', needsReview,
+      'style="border-color:rgba(245,158,11,0.5);color:#f59e0b;"');
+  }
+  return `<div class="pill-nav" style="margin-bottom:16px;">${html}</div>`;
+}
+
+function setReviewBlock(b) {
+  state.currentBlock = b;
+  state.currentGroupIdx = -1;   // jump to the first group of the new filter
+  renderReviewPanel();
 }
 
 function renderReviewPanel() {
@@ -420,7 +463,11 @@ function renderReviewPanel() {
   if (!undecided.length) { renderReviewComplete(); return; }
 
   const fi = getFilteredIndices();
-  if (!fi.length) { panel.innerHTML = `<div class="empty-state">No groups in this block.</div>`; actionRow.style.display='none'; return; }
+  if (!fi.length) {
+    panel.innerHTML = reviewBlockPills() + `<div class="empty-state">No groups in this block — pick another above.</div>`;
+    actionRow.style.display = 'none';
+    return;
+  }
 
   let localIdx = fi.indexOf(state.currentGroupIdx);
   if (localIdx < 0) localIdx = 0;
@@ -429,8 +476,19 @@ function renderReviewPanel() {
   const group = state.groups[globalIdx];
   const decision = state.decisions[globalIdx];
   const all = [group.primary, ...group.duplicates];
-  const chosenId = decision?.chosenId || group.primary.id;
   const pending = fi.filter(i => !state.decisions[i]).length;
+
+  // Per-member keep/remove draft. Init from a committed decision, else from the
+  // AI default (keep the primary/richest, remove the rest).
+  if (draft.gi !== globalIdx) {
+    draft = {
+      gi: globalIdx,
+      removed: new Set(decision && Array.isArray(decision.removed)
+        ? decision.removed
+        : group.duplicates.map(d => d.id)),
+    };
+  }
+  const keptCount = all.length - draft.removed.size;
 
   const reviewBadge = group.needsReview
     ? `<span class="badge badge-dup" style="background:rgba(245,158,11,.12);color:#f59e0b;border-color:rgba(245,158,11,.3);">⚠ Needs review</span>` : '';
@@ -439,7 +497,7 @@ function renderReviewPanel() {
     ? `<span class="badge badge-dup" style="background:rgba(79,127,255,.12);color:var(--accent);border-color:rgba(79,127,255,.3);">${memberCount} grouped issues</span>`
     : `<span class="badge badge-dup">pair</span>`;
 
-  panel.innerHTML = `
+  panel.innerHTML = reviewBlockPills() + `
     <div class="review-header">
       <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:800;">Duplicate group</div>
       ${sizeTag}${reviewBadge}
@@ -458,45 +516,45 @@ function renderReviewPanel() {
         <div class="sim-label">Confidence: ${Math.round(group.similarity*100)}%</div>
       </div>
     </div>
-    ${memberCount > 2 ? `<div style="font-size:12px;color:var(--muted);margin-bottom:12px;">
-      💡 The <strong style="color:var(--accent);">primary version</strong> (richest) will be kept; the other ${memberCount-1} removed.
-      Click "Keep this one" for another canonical, or "All distinct" if it's a false detection.</div>` : ''}
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+      💡 Toggle <strong style="color:var(--green);">Keep</strong> / <strong style="color:var(--red);">Remove</strong> on each card —
+      keep any subset (e.g. 2 of 3). Default follows the AI suggestion (keep the richest, remove the rest).
+    </div>
+    <div class="review-subhint">
+      Keeping <strong style="color:var(--green);">${keptCount}</strong> ·
+      Removing <strong style="color:var(--red);">${draft.removed.size}</strong> of ${all.length}
+    </div>
     <div class="issues-grid">
       ${all.map((issue, idx) => {
-        const isChosen = decision && issue.id === chosenId;
-        const isRemoved = decision && decision.action === 'confirm' && issue.id !== chosenId;
-        const isKeptAll = decision && decision.action === 'keep_all';
-        let cardClass='issue-card', labelClass='card-label duplicate', labelText=`Duplicate ${idx}`;
-        if (idx===0 && !decision) { cardClass+=' primary-card'; labelClass='card-label primary'; labelText='★ Primary version'; }
-        if (isChosen) { cardClass+=' kept-as-primary'; labelClass='card-label kept-primary'; labelText='✓ Kept as canonical'; }
-        if (isRemoved) { cardClass+=' removed-card'; labelClass='card-label removed'; labelText='✕ Will be removed'; }
-        if (isKeptAll) { labelClass='card-label kept-primary'; labelText='✓ All kept'; }
+        const kept = !draft.removed.has(issue.id);
+        const cardClass = 'issue-card ' + (kept ? 'kept-as-primary' : 'removed-card');
+        const labelClass = 'card-label ' + (kept ? 'kept-primary' : 'removed');
+        const star = idx === 0 ? '★ ' : '';
+        const labelText = kept ? `${star}✓ Keep${idx === 0 ? ' (primary)' : ''}` : `${star}✕ Remove`;
         return `<div class="${cardClass}">
           <div class="${labelClass}">${labelText}</div>
           <div class="card-takeaway">${escapeHtml(issue.takeaway)}</div>
           ${issue.initiative ? `<div class="card-initiative">💡 ${escapeHtml(issue.initiative)}</div>` : ''}
           <div class="card-footer">
             <span class="card-id">Row #${issue.id} · ${escapeHtml(issue.block.replace(/^\d+\.\s*/,''))}</span>
-            ${!decision && idx>0 ? `<button class="keep-btn" onclick="keepThis(${globalIdx},${issue.id})">Keep this one</button>` : ''}
+            <button class="keep-btn ${kept ? 'selected' : 'remove-state'}" onclick="toggleMember(${issue.id})">
+              ${kept ? '✓ Keeping — click to remove' : '✕ Removing — click to keep'}
+            </button>
           </div>
         </div>`;
       }).join('')}
     </div>`;
 
   actionRow.style.display = 'flex';
-  if (!decision) {
-    actionRow.innerHTML = `
-      <button class="btn-confirm" onclick="confirmDups(${globalIdx})">✓ Confirm — remove ${group.duplicates.length}</button>
-      <button class="btn-keep-all" onclick="keepAll(${globalIdx})">All distinct</button>
-      <div class="action-hint">or click "Keep this one"</div>`;
-  } else {
-    const msg = decision.action === 'confirm' ? `✓ ${group.duplicates.length} removed`
-              : decision.action === 'keep_all' ? '✓ All kept' : '✓ Choice saved';
-    actionRow.innerHTML = `
-      <div style="color:var(--green);font-weight:600;font-size:13px;">${msg}</div>
-      <button class="btn-keep-all" onclick="undoDecision(${globalIdx})" style="margin-left:12px;">↩ Undo</button>
-      <button class="btn-primary" onclick="nextGroup()" style="margin-left:auto;padding:10px 20px;font-size:13px;">Next group →</button>`;
-  }
+  const k = all.length - draft.removed.size, r = draft.removed.size;
+  actionRow.innerHTML = `
+    <button class="btn-confirm" onclick="applyDecision(${globalIdx})" ${k === 0 ? 'disabled title="Keep at least one"' : ''}>
+      ✓ Apply — keep ${k}, remove ${r}
+    </button>
+    <button class="btn-keep-all" onclick="draftKeepAll()">Keep all</button>
+    ${all.length > 2 ? `<button class="btn-keep-all" onclick="draftKeepBest(${globalIdx})">Keep only best</button>` : ''}
+    ${decision ? `<button class="btn-keep-all" onclick="undoDecision(${globalIdx})">↩ Undo</button>` : ''}
+    <div class="action-hint" style="margin-left:auto;">${decision ? '✓ reviewed — adjust &amp; re-apply if needed' : 'toggle each card, then Apply'}</div>`;
 }
 
 function renderReviewComplete() {
@@ -519,33 +577,62 @@ async function completeProject() {
   renderTab();
 }
 
-// decisions
-function confirmDups(gi) {
-  const g = state.groups[gi];
-  state.decisions[gi] = { action: 'confirm', chosenId: g.primary.id };
-  g.duplicates.forEach(d => state.removedIds.add(d.id));
-  afterDecision();
+// ── decisions (per-member keep/remove model) ──
+// A decision is { removed: [issueId, ...] }. Kept = group members not in `removed`.
+// This generalizes every case: keep all (removed=[]), keep one (remove the rest),
+// or keep any subset (e.g. 2 of 3).
+
+// Rebuild the global removed set from all committed decisions (idempotent → safe undo).
+function recomputeRemoved() {
+  state.removedIds = new Set();
+  state.groups.forEach((g, i) => {
+    const dec = state.decisions[i];
+    if (dec && Array.isArray(dec.removed)) dec.removed.forEach(id => state.removedIds.add(id));
+  });
 }
-function keepAll(gi) { state.decisions[gi] = { action: 'keep_all' }; afterDecision(); }
-function keepThis(gi, id) {
-  const g = state.groups[gi];
-  state.decisions[gi] = { action: 'confirm', chosenId: id };
-  [g.primary, ...g.duplicates].filter(d => d.id !== id).forEach(d => state.removedIds.add(d.id));
-  afterDecision();
+
+// Convert any legacy decisions ({action:'confirm'|'keep_all'}) to the new shape.
+function migrateDecisions() {
+  Object.keys(state.decisions).forEach(k => {
+    const d = state.decisions[k], g = state.groups[k];
+    if (!g || !d || Array.isArray(d.removed)) return;
+    if (d.action === 'keep_all') state.decisions[k] = { removed: [] };
+    else if (d.action === 'confirm') {
+      const keep = d.chosenId != null ? d.chosenId : g.primary.id;
+      state.decisions[k] = { removed: [g.primary, ...g.duplicates].filter(x => x.id !== keep).map(x => x.id) };
+    }
+  });
 }
+
+// Draft toggles (not committed until Apply)
+function toggleMember(id) {
+  if (draft.removed.has(id)) draft.removed.delete(id); else draft.removed.add(id);
+  renderReviewPanel();
+}
+function draftKeepAll() { draft.removed.clear(); renderReviewPanel(); }
+function draftKeepBest(gi) { draft.removed = new Set(state.groups[gi].duplicates.map(d => d.id)); renderReviewPanel(); }
+
+function applyDecision(gi) {
+  if (draft.removed.size >= (state.groups[gi].duplicates.length + 1)) return; // never remove every member
+  state.decisions[gi] = { removed: [...draft.removed] };
+  recomputeRemoved();
+  updateHeader(); renderTabs(); saveProjectData();
+  nextGroup(); // advance (or show completion if all decided)
+}
+
 function undoDecision(gi) {
-  const g = state.groups[gi], prev = state.decisions[gi];
-  if (prev && prev.action !== 'keep_all') [g.primary, ...g.duplicates].forEach(d => state.removedIds.delete(d.id));
   delete state.decisions[gi];
-  afterDecision();
+  draft.gi = null; // force default re-init on next render
+  recomputeRemoved();
+  updateHeader(); renderTabs(); saveProjectData(); renderReviewPanel(); renderSidebar();
 }
-function afterDecision() { updateHeader(); renderTabs(); saveProjectData(); renderReviewPanel(); renderSidebar(); }
 
 function prevGroup() { const fi=getFilteredIndices(), i=fi.indexOf(state.currentGroupIdx); if (i>0){state.currentGroupIdx=fi[i-1];renderReviewPanel();} }
 function nextGroup() {
   const fi=getFilteredIndices(), i=fi.indexOf(state.currentGroupIdx);
   if (i<fi.length-1){state.currentGroupIdx=fi[i+1];renderReviewPanel();}
   else if (!state.groups.some((_,k)=>!state.decisions[k])) renderReviewComplete();
+  else renderReviewPanel(); // last in current filter but work remains elsewhere → refresh (pills/state)
 }
 
 // ═══════════════════════════════════════════════════════════════

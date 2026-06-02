@@ -650,3 +650,9 @@
   .member-row { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:10px; }
   .member-name { font-size:13px; font-weight:600; }
   .member-email { font-size:11px; color:var(--muted); font-family:'DM Mono',monospace; }
+
+  /* ── Per-member keep/remove toggles (Duplicate Review) ── */
+  .review-subhint { font-size:12px; color:var(--muted); margin-bottom:12px; font-family:'DM Mono',monospace; }
+  .keep-btn.remove-state { border-color:rgba(239,68,68,0.4); color:var(--red); }
+  .keep-btn.remove-state:hover { border-color:var(--red); color:var(--red); background:rgba(239,68,68,0.08); }
+  .btn-confirm:disabled { opacity:0.45; cursor:not-allowed; transform:none; box-shadow:none; }
