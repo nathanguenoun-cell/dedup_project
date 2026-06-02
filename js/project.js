@@ -224,15 +224,22 @@ function jumpToIssue(id) {
 
 // ─── Block filter pills (within All Issues) ──────────────────────
 
+// Pills pass an INDEX (not the block string) to the onclick handler — block
+// names contain quotes/spaces/&, which would break an inline string attribute.
+let ISSUES_FILTER_KEYS = [];
 function blockPills() {
   if (!RAW_DATA.length) return '';
-  const pills = [{ key: 'all', label: 'All Blocks', count: RAW_DATA.length },
-    ...BLOCKS.map(b => ({ key: b, label: b.replace(/^\d+\.\s*/, ''), count: BLOCK_COUNTS[b] }))];
-  return `<div class="pill-nav">${pills.map(p => `
-    <div class="pill ${state.currentBlock === p.key ? 'active' : ''}" onclick="setBlock(${JSON.stringify(p.key)})">
-      ${escapeHtml(p.label)} <span class="pill-count">${p.count}</span>
-    </div>`).join('')}</div>`;
+  ISSUES_FILTER_KEYS = ['all', ...BLOCKS];
+  const html = ISSUES_FILTER_KEYS.map((key, idx) => {
+    const label = key === 'all' ? 'All Blocks' : key.replace(/^\d+\.\s*/, '');
+    const count = key === 'all' ? RAW_DATA.length : BLOCK_COUNTS[key];
+    return `<div class="pill ${state.currentBlock === key ? 'active' : ''}" onclick="setBlockIdx(${idx})">
+      ${escapeHtml(label)} <span class="pill-count">${count}</span>
+    </div>`;
+  }).join('');
+  return `<div class="pill-nav">${html}</div>`;
 }
+function setBlockIdx(i) { const k = ISSUES_FILTER_KEYS[i]; if (k == null) return; setBlock(k); }
 function setBlock(b) { state.currentBlock = b; renderTab(); }
 
 // ═══════════════════════════════════════════════════════════════
@@ -417,36 +424,38 @@ function getFilteredIndices() {
 
 // Building-block filter bar for the review tab. Each pill shows the number of
 // groups still PENDING in that block — so a team can split the work by block.
+// Pills pass an INDEX into REVIEW_FILTER_KEYS (block names break inline string attrs).
+let REVIEW_FILTER_KEYS = [];
 function reviewBlockPills() {
   const perBlock = {};
   state.groups.forEach((g, i) => {
     const b = g.block;
-    perBlock[b] = perBlock[b] || { total: 0, pending: 0 };
-    perBlock[b].total++;
+    perBlock[b] = perBlock[b] || { pending: 0 };
     if (!state.decisions[i]) perBlock[b].pending++;
   });
   const totalPending = state.groups.filter((_, i) => !state.decisions[i]).length;
   const needsReview = state.groups.filter((g, i) => g.needsReview && !state.decisions[i]).length;
 
-  const pill = (key, label, count, extra = '') =>
-    `<div class="pill ${state.currentBlock === key ? 'active' : ''}" ${extra}
-          onclick="setReviewBlock(${JSON.stringify(key)})">
-       ${escapeHtml(label)} <span class="pill-count">${count}</span>
-     </div>`;
+  const keys = ['all', ...Object.keys(perBlock).sort()];
+  const labels = { all: 'All blocks' };
+  const counts = { all: totalPending };
+  Object.keys(perBlock).forEach(b => { labels[b] = b.replace(/^\d+\.\s*/, ''); counts[b] = perBlock[b].pending; });
+  if (needsReview > 0) { keys.push('__review__'); labels['__review__'] = '⚠ Needs review'; counts['__review__'] = needsReview; }
+  REVIEW_FILTER_KEYS = keys;
 
-  let html = pill('all', 'All blocks', totalPending);
-  Object.keys(perBlock).sort().forEach(b => {
-    html += pill(b, b.replace(/^\d+\.\s*/, ''), perBlock[b].pending);
-  });
-  if (needsReview > 0) {
-    html += pill('__review__', '⚠ Needs review', needsReview,
-      'style="border-color:rgba(245,158,11,0.5);color:#f59e0b;"');
-  }
+  const html = keys.map((key, idx) => {
+    const extra = key === '__review__' ? 'style="border-color:rgba(245,158,11,0.5);color:#f59e0b;"' : '';
+    return `<div class="pill ${state.currentBlock === key ? 'active' : ''}" ${extra} onclick="setReviewBlockIdx(${idx})">
+      ${escapeHtml(labels[key])} <span class="pill-count">${counts[key]}</span>
+    </div>`;
+  }).join('');
   return `<div class="pill-nav" style="margin-bottom:16px;">${html}</div>`;
 }
 
-function setReviewBlock(b) {
-  state.currentBlock = b;
+function setReviewBlockIdx(i) {
+  const k = REVIEW_FILTER_KEYS[i];
+  if (k == null) return;
+  state.currentBlock = k;
   state.currentGroupIdx = -1;   // jump to the first group of the new filter
   renderReviewPanel();
 }
