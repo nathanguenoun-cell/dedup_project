@@ -1,0 +1,2 @@
+# No third-party dependencies — the app uses only the Python standard library.
+# This file exists so Nixpacks reliably detects a Python project and installs python3.
