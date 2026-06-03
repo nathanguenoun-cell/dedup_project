@@ -83,9 +83,14 @@ ${hints}
 TASK: Group issues that describe the SAME underlying problem into clusters.
 - A group can have 2, 3, or many members.
 - Each index belongs to AT MOST ONE group.
-- Merge aggressively when the root problem is identical even if wording differs
+- Merge ONLY when BOTH are true: (1) the same root problem, AND (2) it would be
+  fixed by the same corrective action — even if the wording is completely different
   ("No PIP process" = "Underperformance management unclear").
-- Do NOT merge issues that would require genuinely different solutions.
+- Do NOT merge issues that merely share a theme or topic but are distinct problems
+  with different fixes (e.g. "no onboarding curriculum" vs "no onboarding owner" —
+  same area, different problems → keep separate).
+- When unsure whether two issues are the same problem, give the group a LOW confidence
+  (it will be double-checked) rather than forcing or dropping the merge.
 - Ignore singletons (issues with no duplicate) — do not output them.
 
 Respond with ONLY valid JSON (no markdown, no prose):

@@ -39,6 +39,21 @@ API_KEY   = os.environ.get('ANTHROPIC_API_KEY', '')
 MODEL     = os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-5')
 MOCK_MODE = not API_KEY
 
+# Embeddings provider (semantic candidate generation). Prefer Voyage (Anthropic's
+# recommended embeddings partner); fall back to OpenAI; else disabled → the client
+# degrades to lexical-only candidate generation.
+VOYAGE_API_KEY = os.environ.get('VOYAGE_API_KEY', '')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+if VOYAGE_API_KEY:
+    EMBED_PROVIDER = 'voyage'
+    EMBED_MODEL = os.environ.get('EMBEDDING_MODEL', 'voyage-3.5')
+elif OPENAI_API_KEY:
+    EMBED_PROVIDER = 'openai'
+    EMBED_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
+else:
+    EMBED_PROVIDER = None
+    EMBED_MODEL = None
+
 db.init_db()
 
 if MOCK_MODE:
@@ -47,6 +62,11 @@ if MOCK_MODE:
 else:
     print(f"✓  API key found (****{API_KEY[-6:]}). Using real Anthropic API.", flush=True)
     print(f"   Model: {MODEL}  (override with ANTHROPIC_MODEL=...)", flush=True)
+
+if EMBED_PROVIDER:
+    print(f"✓  Embeddings: {EMBED_PROVIDER} ({EMBED_MODEL}).", flush=True)
+else:
+    print("ℹ  No embeddings key (VOYAGE_API_KEY / OPENAI_API_KEY) — falling back to lexical candidates.", flush=True)
 
 print(f"→  Data dir: {db.DATA_DIR}", flush=True)
 print(f"→  Serving on http://0.0.0.0:{PORT}\n", flush=True)
@@ -115,6 +135,29 @@ def real_anthropic_call(body_bytes):
         return resp.read()
 
 
+def real_embeddings_call(texts):
+    """Embed a list of texts via the configured provider. Returns list[list[float]].
+    Batches to keep requests well under provider input limits."""
+    vectors = []
+    BATCH = 96
+    for start in range(0, len(texts), BATCH):
+        chunk = texts[start:start + BATCH]
+        if EMBED_PROVIDER == 'voyage':
+            url = 'https://api.voyageai.com/v1/embeddings'
+            payload = {'model': EMBED_MODEL, 'input': chunk, 'input_type': 'document'}
+            headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {VOYAGE_API_KEY}'}
+        else:  # openai
+            url = 'https://api.openai.com/v1/embeddings'
+            payload = {'model': EMBED_MODEL, 'input': chunk}
+            headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {OPENAI_API_KEY}'}
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers, method='POST')
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read())
+        # Both providers return {"data": [{"embedding": [...]}, ...]} in input order.
+        vectors.extend(item['embedding'] for item in data['data'])
+    return vectors
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIR, **kwargs)
@@ -179,6 +222,33 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         path = self.path.split('?', 1)[0]
         body = self._read_body()
 
+        if path == '/api/embeddings':
+            if not auth.current_user(self):
+                self._send_json(401, {"error": "Not authenticated."})
+                return
+            if not EMBED_PROVIDER:
+                # No provider configured → client falls back to lexical candidates.
+                self._send_json(200, {"available": False})
+                return
+            try:
+                texts = (json.loads(body) or {}).get('texts', [])
+                if not isinstance(texts, list) or not texts:
+                    self._send_json(400, {"error": "texts[] required."})
+                    return
+                t0 = time.time()
+                vectors = real_embeddings_call([str(t) for t in texts])
+                print(f"[embeddings] ok n={len(texts)} provider={EMBED_PROVIDER} in {time.time()-t0:.1f}s", flush=True)
+                self._send_json(200, {"available": True, "embeddings": vectors})
+            except urllib.error.HTTPError as e:
+                err = e.read().decode()
+                print(f"[embeddings] FAIL provider={EMBED_PROVIDER} HTTP {e.code}: {err[:200]}", flush=True)
+                # Degrade gracefully → lexical fallback on the client.
+                self._send_json(200, {"available": False, "error": f"HTTP {e.code}"})
+            except Exception as e:
+                print(f"[embeddings] ERROR provider={EMBED_PROVIDER}: {type(e).__name__}: {e}", flush=True)
+                self._send_json(200, {"available": False, "error": str(e)})
+            return
+
         if path == '/api/messages':
             # Require a valid session to use the LLM proxy.
             user = auth.current_user(self)
@@ -203,10 +273,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             print(f"[messages] start  block={block!r} user={user['email']} bytes_in={len(body)}", flush=True)
             try:
                 if MOCK_MODE:
-                    m = re.search(r'are (\d+) issues', prompt)
-                    n_issues = int(m.group(1)) if m else 0
-                    hint_pairs = [(int(a), int(b)) for a, b in re.findall(r'\((\d+),(\d+)\)', prompt)]
-                    result = mock_response(n_issues, hint_pairs)
+                    if 'subgroups' in prompt:
+                        # Verification prompt → keep the cluster intact (one subgroup
+                        # of all listed ids). Real LLM would split when appropriate.
+                        ids = [int(x) for x in re.findall(r'\[(\d+)\]', prompt)]
+                        result = {"subgroups": [ids] if len(ids) >= 2 else [], "reason": "Mock: kept intact."}
+                    else:
+                        m = re.search(r'are (\d+) issues', prompt)
+                        n_issues = int(m.group(1)) if m else 0
+                        hint_pairs = [(int(a), int(b)) for a, b in re.findall(r'\((\d+),(\d+)\)', prompt)]
+                        result = mock_response(n_issues, hint_pairs)
                     response_body = json.dumps({
                         "content": [{"type": "text", "text": json.dumps(result)}]
                     }).encode()

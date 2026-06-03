@@ -384,21 +384,34 @@ async function startAnalysis() {
   const logEl = document.getElementById('batchLog');
   const log = (m, t='current') => { const d=document.createElement('div'); d.className=`batch-log-line ${t}`; d.textContent=m; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; };
 
-  // Stage 1
-  sub.textContent = 'Stage 1: computing local similarity…';
-  log('▶ Stage 1 — Pre-filter: Jaccard + TF-IDF cosine');
+  // Stage 0 — Embeddings (semantic vectors). Falls back to lexical-only if the
+  // embeddings provider isn't configured or errors.
+  sub.textContent = 'Stage 0: embedding issues (semantic)…';
+  log('▶ Stage 0 — Embeddings');
+  let vecById = null;
+  try {
+    vecById = await embedAll(RAW_DATA);
+  } catch { vecById = null; }
+  if (vecById) log(`  ✓ embedded ${vecById.size} issues — semantic matching ON`, 'done');
+  else log('  ℹ embeddings unavailable — falling back to lexical matching', 'done');
+  bar.style.width = '10%';
+
+  // Stage 1 — Candidate pairs = embedding ∪ lexical (recall).
+  sub.textContent = 'Stage 1: building candidate pairs…';
+  log('▶ Stage 1 — Candidates (embedding ∪ lexical)');
   const candByBlock = {}; let totalPairs = 0;
   for (const block of BLOCKS) {
     const bi = RAW_DATA.filter(d => d.block === block);
-    const pairs = getCandidatePairs(bi);
+    const lex = getCandidatePairs(bi);
+    const emb = vecById ? embeddingCandidatePairs(bi, vecById) : [];
+    const pairs = unionPairs(emb, lex);
     candByBlock[block] = pairs; totalPairs += pairs.length;
-    log(`  ✓ ${block.replace(/^\d+\.\s*/,'')} : ${pairs.length} candidate pairs / ${bi.length} issues`, 'done');
+    log(`  ✓ ${block.replace(/^\d+\.\s*/,'')} : ${pairs.length} pairs (emb ${emb.length} / lex ${lex.length}) · ${bi.length} issues`, 'done');
   }
   log(`  → ${totalPairs} candidate pairs total`, 'done');
-  bar.style.width = '15%';
+  bar.style.width = '20%';
 
-  // Stage 2 (one call per block, capped concurrency so we don't fire 8+ slow
-  // requests at once — that overloads the proxy and causes 502s / partial loads).
+  // Stage 2 — LLM clustering (one call per block, capped concurrency).
   sub.textContent = 'Stage 2: semantic LLM grouping…';
   log(`▶ Stage 2 — LLM grouping (1 call / block, max ${LLM_CONCURRENCY} in parallel)`);
   const withPairs = BLOCKS.filter(b => (candByBlock[b]||[]).length); let done = 0;
@@ -409,7 +422,7 @@ async function startAnalysis() {
     if (!pairs.length) { log(`  — ${block.replace(/^\d+\.\s*/,'')} : no pairs, skipped`, 'done'); return []; }
     try {
       const groups = await analyzeBlock(block, bi, pairs);
-      done++; bar.style.width = (15 + Math.round(done / withPairs.length * 65)) + '%';
+      done++; bar.style.width = (20 + Math.round(done / withPairs.length * 50)) + '%';
       log(`  ✓ ${block.replace(/^\d+\.\s*/,'')} : ${groups.length} groups proposed`, 'done');
       return groups;
     } catch (e) {
@@ -422,12 +435,39 @@ async function startAnalysis() {
   state.failedBlocks = failed;
   log(`  → ${rawGroups.length} raw groups proposed by the LLM`, 'done');
   if (failed.length) log(`  ⚠ ${failed.length} block(s) failed: ${failed.map(b=>b.replace(/^\d+\.\s*/,'')).join(', ')}`, 'done');
-  bar.style.width = '80%';
+  bar.style.width = '70%';
 
-  // Stage 3
-  sub.textContent = 'Stage 3: finalizing groups…';
-  log('▶ Stage 3 — Member dedupe + richness scoring');
-  state.groups = finalizeGroups(rawGroups);
+  // Stage 3a — finalize (dedupe membership + pick richest primary).
+  let groups = finalizeGroups(rawGroups);
+
+  // Stage 2½ — Verification: re-check doubtful groups (low confidence or large)
+  // and split/trim them. Improves precision; only doubtful groups cost a call.
+  const toVerify = groups.filter(needsVerification);
+  if (toVerify.length) {
+    sub.textContent = `Stage 2½: verifying ${toVerify.length} doubtful group(s)…`;
+    log(`▶ Stage 2½ — Verifying ${toVerify.length} doubtful group(s)`);
+    const keep = groups.filter(g => !needsVerification(g));
+    let vdone = 0;
+    const verified = await runPool(toVerify, LLM_CONCURRENCY, async g => {
+      try {
+        const refined = await verifyGroup(g);
+        vdone++; bar.style.width = (70 + Math.round(vdone / toVerify.length * 25)) + '%';
+        if (refined.length !== 1 || refined[0].duplicates.length !== g.duplicates.length) {
+          log(`  ↪ "${(g.primary.takeaway||'').slice(0,40)}…" → ${refined.length} subgroup(s)`, 'done');
+        }
+        return refined;
+      } catch (e) {
+        log(`  ⚠ verify failed, kept as-is: ${e.message}`, 'done');
+        return [g];
+      }
+    });
+    groups = keep.concat(verified.flat());
+    log(`  → ${groups.length} groups after verification`, 'done');
+  }
+
+  // Stage 3b — commit
+  sub.textContent = 'Stage 3: finalizing…';
+  state.groups = groups;
   state.decisions = {};
   state.removedIds = new Set();
   draft = { gi: null, removed: new Set() };
