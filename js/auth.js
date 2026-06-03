@@ -11,8 +11,13 @@ function renderAuth() {
     <div class="auth-screen">
       <div class="auth-card">
         <div class="auth-brand">
-          <div class="logo">Deduplication Platform</div>
-          <div class="logo-badge">OPERATING PARTNER</div>
+          <div class="logo">
+            <div class="logo-hex-mark"></div>
+            <div class="logo-wordmark">
+              <span class="logo-brand">Atscale</span>
+              <span class="logo-product">Deduplication</span>
+            </div>
+          </div>
         </div>
         <div class="auth-title">${isLogin ? 'Sign in' : 'Create your account'}</div>
         <div class="auth-sub">${isLogin

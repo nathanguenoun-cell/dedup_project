@@ -134,8 +134,15 @@ function renderProjectShell() {
   v.innerHTML = `
     <div class="header">
       <div class="header-top">
+        <div class="logo">
+          <div class="logo-hex-mark"></div>
+          <div class="logo-wordmark">
+            <span class="logo-brand">Atscale</span>
+            <span class="logo-product">Deduplication</span>
+          </div>
+        </div>
         <button class="back-btn" onclick="goDashboard()">← Projects</button>
-        <div class="logo" id="projName">${escapeHtml(PROJECT.name)}</div>
+        <div class="proj-name" id="projName">${escapeHtml(PROJECT.name)}</div>
         <span class="pstatus pstatus-${PROJECT.status}" id="projStatus">${PROJECT.status}</span>
         <div class="stats-bar">
           <div class="stat"><div class="stat-num" id="stat-total">0</div><div class="stat-label">Total Issues</div></div>
@@ -331,8 +338,7 @@ function injectDropStyles() {
   if (document.getElementById('dropStyles')) return;
   const s = document.createElement('style');
   s.id = 'dropStyles';
-  s.textContent = `.drop-zone{border:2px dashed var(--border);border-radius:12px;padding:28px;text-align:center;transition:all .2s}
-    .drop-zone.drag-over{border-color:var(--accent);background:rgba(79,127,255,.05)}`;
+  s.textContent = `.drop-zone{border:2px dashed var(--border);border-radius:12px;padding:28px;text-align:center;transition:all .2s;background:var(--surface)}.drop-zone.drag-over{border-color:var(--accent);background:rgba(42,65,229,.04)}`;
   document.head.appendChild(s);
 }
 
@@ -594,7 +600,7 @@ function renderReviewPanel() {
 
   panel.innerHTML = failedBanner() + reviewBlockPills() + `
     <div class="review-header">
-      <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:800;">Duplicate group</div>
+      <div style="font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:600;letter-spacing:-0.01em;color:var(--text);">Duplicate group</div>
       ${sizeTag}${reviewBadge}
       <div class="review-badge">${pending} pending</div>
       <div class="review-nav">

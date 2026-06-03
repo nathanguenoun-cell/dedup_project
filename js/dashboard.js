@@ -14,8 +14,13 @@ async function renderDashboard() {
   v.innerHTML = `
     <div class="header">
       <div class="header-top">
-        <div class="logo">Deduplication Platform</div>
-        <div class="logo-badge">PROJECTS</div>
+        <div class="logo">
+          <div class="logo-hex-mark"></div>
+          <div class="logo-wordmark">
+            <span class="logo-brand">Atscale</span>
+            <span class="logo-product">Deduplication</span>
+          </div>
+        </div>
         <div class="topbar-user">
           <span class="topbar-name">${esc(CURRENT_USER ? CURRENT_USER.name : '')}</span>
           <button class="nav-btn" onclick="doLogout()">Sign out</button>

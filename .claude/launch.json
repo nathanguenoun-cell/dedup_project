@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "dedup-v2",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "7723"],
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-l", "7723", "/Users/nguenoun/Documents/Projets/Deduplication_AtScale/dedup-v2"],
       "port": 7723
     }
   ]
