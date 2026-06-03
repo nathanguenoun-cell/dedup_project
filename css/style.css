@@ -167,6 +167,36 @@ body {
 }
 .pill.active .pill-count { background: rgba(255,255,255,0.25); }
 
+/* ── PILLS INSIDE CONTENT AREA (light background override) ── */
+.panel .pill,
+.main .pill {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--muted);
+}
+.panel .pill:hover,
+.main .pill:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(42,65,229,0.04);
+}
+.panel .pill.active,
+.main .pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.panel .pill .pill-count,
+.main .pill .pill-count {
+  background: rgba(25,50,63,0.08);
+  color: var(--muted);
+}
+.panel .pill.active .pill-count,
+.main .pill.active .pill-count {
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+}
+
 /* ── PROJECT TABS ── */
 .project-tabs {
   display: flex;
