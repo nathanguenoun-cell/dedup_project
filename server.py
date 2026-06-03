@@ -11,7 +11,7 @@ Zero external dependencies (Python stdlib only).
 
 Env vars:
   PORT               (Railway injects this)            default 7724
-  ANTHROPIC_API_KEY  enables real LLM calls            default → mock mode
+  ANTHROPIC_API_KEY  enables real LLM calls           default → mock mode
   ANTHROPIC_MODEL    model id                           default claude-sonnet-4-5
   DATA_DIR           where dedup.db lives (Railway Volume e.g. /data)
   DEDUP_SECRET       session signing secret (set in prod)
@@ -27,6 +27,7 @@ import urllib.error
 import sys
 import random
 import re
+import time
 
 import db
 import auth
@@ -180,13 +181,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         if path == '/api/messages':
             # Require a valid session to use the LLM proxy.
-            if not auth.current_user(self):
+            user = auth.current_user(self)
+            if not user:
                 self._send_json(401, {"error": "Not authenticated."})
                 return
+
+            # Parse the prompt once, and pull out the building-block name so each
+            # call is traceable in the logs (which block failed, how long it took).
+            prompt = ''
+            block = '?'
+            try:
+                payload = json.loads(body)
+                prompt = payload.get('messages', [{}])[0].get('content', '')
+                mb = re.search(r'Building block:\s*"([^"]+)"', prompt)
+                if mb:
+                    block = mb.group(1)
+            except Exception:
+                pass
+
+            t0 = time.time()
+            print(f"[messages] start  block={block!r} user={user['email']} bytes_in={len(body)}", flush=True)
             try:
                 if MOCK_MODE:
-                    payload = json.loads(body)
-                    prompt  = payload.get('messages', [{}])[0].get('content', '')
                     m = re.search(r'are (\d+) issues', prompt)
                     n_issues = int(m.group(1)) if m else 0
                     hint_pairs = [(int(a), int(b)) for a, b in re.findall(r'\((\d+),(\d+)\)', prompt)]
@@ -196,17 +212,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     }).encode()
                 else:
                     response_body = real_anthropic_call(body)
+                dur = time.time() - t0
+                print(f"[messages] ok     block={block!r} in {dur:.1f}s bytes_out={len(response_body)}", flush=True)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(response_body)
             except urllib.error.HTTPError as e:
+                dur = time.time() - t0
                 err = e.read().decode()
-                print(f"  Anthropic API error {e.code}: {err[:200]}")
+                print(f"[messages] FAIL   block={block!r} after {dur:.1f}s HTTP {e.code}: {err[:200]}", flush=True)
                 self._send_json(e.code, {"error": err[:300]})
             except Exception as e:
-                print(f"  Proxy error: {e}")
-                self._send_json(500, {"error": str(e)})
+                dur = time.time() - t0
+                print(f"[messages] ERROR  block={block!r} after {dur:.1f}s: {type(e).__name__}: {e}", flush=True)
+                self._send_json(502, {"error": str(e)})
             return
 
         if not self._try_api('POST', body):

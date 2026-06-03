@@ -21,13 +21,32 @@ let state = {
   filterBlock: 'all',
   filterStatus: 'all',
   fileName: '',
+  failedBlocks: [],       // blocks whose Stage-2 call failed (e.g. 502) — retryable
 };
+
+// Max simultaneous /api/messages calls. Firing one per block all at once
+// overloads the proxy on a small instance → 502s. 3 keeps it fast but safe.
+const LLM_CONCURRENCY = 3;
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Run `worker` over `items` with at most `limit` in flight. Preserves order.
+async function runPool(items, limit, worker) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function lane() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await worker(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+  return results;
 }
 
 function recomputeBlocks() {
@@ -60,6 +79,7 @@ async function openProject(projectId) {
     recomputeBlocks();
     state.groups = d.groups || [];
     state.decisions = d.decisions || {};
+    state.failedBlocks = d.failed_blocks || [];
     migrateDecisions();              // upgrade any legacy decision shapes
     recomputeRemoved();              // derive removed set from decisions (consistent)
     state.fileName = d.file_name || '';
@@ -92,6 +112,7 @@ function saveProjectData(immediate) {
     groups: state.groups,
     decisions: state.decisions,
     removed_ids: [...state.removedIds],
+    failed_blocks: state.failedBlocks || [],
     status: PROJECT.status,
   };
   const doSave = () => api.saveData(PROJECT.id, payload).catch(e => console.warn('save failed', e));
@@ -276,7 +297,7 @@ function renderIssuesTab() {
   }
 
   const analyzed = state.groups.length > 0;
-  panel.innerHTML = `
+  panel.innerHTML = failedBanner() + `
     <div class="issues-toolbar">
       <div>
         <div class="issues-h">Input data</div>
@@ -370,11 +391,13 @@ async function startAnalysis() {
   log(`  → ${totalPairs} candidate pairs total`, 'done');
   bar.style.width = '15%';
 
-  // Stage 2 (parallel, one call per block)
-  sub.textContent = 'Stage 2: semantic LLM grouping (parallel)…';
-  log('▶ Stage 2 — LLM grouping (1 call / block)');
+  // Stage 2 (one call per block, capped concurrency so we don't fire 8+ slow
+  // requests at once — that overloads the proxy and causes 502s / partial loads).
+  sub.textContent = 'Stage 2: semantic LLM grouping…';
+  log(`▶ Stage 2 — LLM grouping (1 call / block, max ${LLM_CONCURRENCY} in parallel)`);
   const withPairs = BLOCKS.filter(b => (candByBlock[b]||[]).length); let done = 0;
-  const results = await Promise.all(BLOCKS.map(async block => {
+  const failed = [];
+  const results = await runPool(BLOCKS, LLM_CONCURRENCY, async block => {
     const bi = RAW_DATA.filter(d => d.block === block);
     const pairs = candByBlock[block] || [];
     if (!pairs.length) { log(`  — ${block.replace(/^\d+\.\s*/,'')} : no pairs, skipped`, 'done'); return []; }
@@ -383,10 +406,16 @@ async function startAnalysis() {
       done++; bar.style.width = (15 + Math.round(done / withPairs.length * 65)) + '%';
       log(`  ✓ ${block.replace(/^\d+\.\s*/,'')} : ${groups.length} groups proposed`, 'done');
       return groups;
-    } catch (e) { log(`  ✗ ${block.replace(/^\d+\.\s*/,'')} : ${e.message}`, 'done'); return []; }
-  }));
+    } catch (e) {
+      log(`  ✗ ${block.replace(/^\d+\.\s*/,'')} : ${e.message}`, 'done');
+      failed.push(block);
+      return [];
+    }
+  });
   const rawGroups = results.flat();
+  state.failedBlocks = failed;
   log(`  → ${rawGroups.length} raw groups proposed by the LLM`, 'done');
+  if (failed.length) log(`  ⚠ ${failed.length} block(s) failed: ${failed.map(b=>b.replace(/^\d+\.\s*/,'')).join(', ')}`, 'done');
   bar.style.width = '80%';
 
   // Stage 3
@@ -460,12 +489,69 @@ function setReviewBlockIdx(i) {
   renderReviewPanel();
 }
 
+// Notice shown when some blocks failed Stage 2 (so results are partial).
+function failedBanner() {
+  const f = state.failedBlocks || [];
+  if (!f.length) return '';
+  return `<div class="notice" style="margin-bottom:14px;">
+    <span class="notice-icon">⚠</span>
+    <span><strong>${f.length} building block(s) failed to analyze</strong> (likely a temporary API/proxy error):
+      ${f.map(b => escapeHtml(b.replace(/^\d+\.\s*/, ''))).join(', ')}.
+      <a href="#" onclick="retryFailedBlocks();return false;" style="color:var(--accent);font-weight:600;">Retry these blocks →</a>
+    </span>
+  </div>`;
+}
+
+// Re-run Stage 1+2 for the failed blocks only, finalize, and append their groups
+// (existing groups/decisions keep their indices → review progress is preserved).
+async function retryFailedBlocks() {
+  const blocks = (state.failedBlocks || []).slice();
+  if (!blocks.length) return;
+  const panel = document.getElementById('mainPanel');
+  document.getElementById('actionRow').style.display = 'none';
+  panel.innerHTML = `<div class="progress-screen">
+    <div class="progress-ring"></div>
+    <div class="progress-title">Retrying ${blocks.length} block(s)…</div>
+    <div class="batch-log" id="batchLog"></div></div>`;
+  const logEl = document.getElementById('batchLog');
+  const log = (m, t = 'current') => { const d = document.createElement('div'); d.className = `batch-log-line ${t}`; d.textContent = m; logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight; };
+
+  const stillFailed = [];
+  const newRaw = await runPool(blocks, LLM_CONCURRENCY, async block => {
+    const bi = RAW_DATA.filter(d => d.block === block);
+    const pairs = getCandidatePairs(bi);
+    if (!pairs.length) { log(`— ${block.replace(/^\d+\.\s*/, '')} : no pairs`, 'done'); return []; }
+    try {
+      const g = await analyzeBlock(block, bi, pairs);
+      log(`✓ ${block.replace(/^\d+\.\s*/, '')} : ${g.length} groups`, 'done');
+      return g;
+    } catch (e) {
+      log(`✗ ${block.replace(/^\d+\.\s*/, '')} : ${e.message}`, 'done');
+      stillFailed.push(block);
+      return [];
+    }
+  });
+
+  state.groups = state.groups.concat(finalizeGroups(newRaw.flat()));
+  state.failedBlocks = stillFailed;
+  recomputeRemoved();
+  if (state.groups.some((_, i) => !state.decisions[i])) PROJECT.status = 'review';
+  updateHeader();
+  await saveProjectData(true);
+  state.tab = 'review';
+  state.currentBlock = 'all';
+  state.currentGroupIdx = -1;
+  renderTab();
+}
+
 function renderReviewPanel() {
   const panel = document.getElementById('mainPanel');
   const actionRow = document.getElementById('actionRow');
 
   if (!state.groups.length) {
-    panel.innerHTML = `<div class="empty-state">No duplicate groups yet. Import data and run the analysis from the All Issues tab.</div>`;
+    panel.innerHTML = failedBanner() + (state.failedBlocks && state.failedBlocks.length
+      ? `<div class="empty-state">All blocks failed to analyze. Use “Retry these blocks” above.</div>`
+      : `<div class="empty-state">No duplicate groups yet. Import data and run the analysis from the All Issues tab.</div>`);
     actionRow.style.display = 'none'; return;
   }
   const undecided = state.groups.filter((_, i) => !state.decisions[i]);
@@ -506,7 +592,7 @@ function renderReviewPanel() {
     ? `<span class="badge badge-dup" style="background:rgba(79,127,255,.12);color:var(--accent);border-color:rgba(79,127,255,.3);">${memberCount} grouped issues</span>`
     : `<span class="badge badge-dup">pair</span>`;
 
-  panel.innerHTML = reviewBlockPills() + `
+  panel.innerHTML = failedBanner() + reviewBlockPills() + `
     <div class="review-header">
       <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:800;">Duplicate group</div>
       ${sizeTag}${reviewBadge}

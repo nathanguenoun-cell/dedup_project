@@ -140,6 +140,7 @@ def _save_data(user, pid, body):
         body.get("groups", []),
         body.get("decisions", {}),
         body.get("removed_ids", []),
+        body.get("failed_blocks", []),
     )
     status = body.get("status")
     if status in ("draft", "review", "completed"):

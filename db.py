@@ -75,6 +75,10 @@ def init_db():
             );
             """
         )
+        # Idempotent migration: add columns introduced after initial release.
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(project_data)")]
+        if "failed_blocks" not in cols:
+            conn.execute("ALTER TABLE project_data ADD COLUMN failed_blocks TEXT NOT NULL DEFAULT '[]'")
         conn.commit()
     finally:
         conn.close()
@@ -289,33 +293,36 @@ def get_project_data(project_id):
             "SELECT * FROM project_data WHERE project_id = ?", (project_id,)
         ).fetchone()
         if not row:
-            return {"file_name": "", "raw_data": [], "groups": [], "decisions": {}, "removed_ids": []}
+            return {"file_name": "", "raw_data": [], "groups": [], "decisions": {}, "removed_ids": [], "failed_blocks": []}
+        keys = row.keys()
         return {
             "file_name": row["file_name"],
             "raw_data": json.loads(row["raw_data"]),
             "groups": json.loads(row["groups"]),
             "decisions": json.loads(row["decisions"]),
             "removed_ids": json.loads(row["removed_ids"]),
+            "failed_blocks": json.loads(row["failed_blocks"]) if "failed_blocks" in keys and row["failed_blocks"] else [],
             "updated_at": row["updated_at"],
         }
     finally:
         conn.close()
 
 
-def save_project_data(project_id, file_name, raw_data, groups, decisions, removed_ids):
+def save_project_data(project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks=None):
     """Last-write-wins persistence of the shared dedup state."""
     conn = connect()
     try:
         conn.execute(
             """
-            INSERT INTO project_data (project_id, file_name, raw_data, groups, decisions, removed_ids, updated_at)
-            VALUES (?,?,?,?,?,?,?)
+            INSERT INTO project_data (project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks, updated_at)
+            VALUES (?,?,?,?,?,?,?,?)
             ON CONFLICT(project_id) DO UPDATE SET
                 file_name=excluded.file_name,
                 raw_data=excluded.raw_data,
                 groups=excluded.groups,
                 decisions=excluded.decisions,
                 removed_ids=excluded.removed_ids,
+                failed_blocks=excluded.failed_blocks,
                 updated_at=excluded.updated_at
             """,
             (
@@ -325,6 +332,7 @@ def save_project_data(project_id, file_name, raw_data, groups, decisions, remove
                 json.dumps(groups or []),
                 json.dumps(decisions or {}),
                 json.dumps(removed_ids or []),
+                json.dumps(failed_blocks or []),
                 now(),
             ),
         )

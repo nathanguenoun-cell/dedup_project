@@ -11,6 +11,41 @@
 //     duplicate groups of any size (>2), and a tiny, truncation-proof output.
 // ═══════════════════════════════════════════════════════════════
 
+// POST to the LLM proxy with retry + backoff. The proxy can return a transient
+// 502/503/504 (Railway edge timeout under concurrent load) or 429 (rate limit);
+// those are retried. Other statuses (401, 400, …) fail immediately.
+const _sleep = ms => new Promise(r => setTimeout(r, ms));
+const _backoff = attempt => 800 * Math.pow(2, attempt - 1) + Math.random() * 400; // ~0.8s, 1.6s, 3.2s (+jitter)
+const _RETRYABLE = new Set([429, 500, 502, 503, 504]);
+
+async function callMessages(body, attempts = 3) {
+  let lastErr;
+  for (let a = 1; a <= attempts; a++) {
+    let res;
+    try {
+      res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(body),
+      });
+    } catch (e) {                       // network / connection drop
+      lastErr = new Error('Network error: ' + e.message);
+      if (a < attempts) { await _sleep(_backoff(a)); continue; }
+      throw lastErr;
+    }
+    if (res.ok) return res;
+    if (_RETRYABLE.has(res.status) && a < attempts) {
+      lastErr = new Error(`API ${res.status} (retrying)`);
+      await _sleep(_backoff(a));
+      continue;
+    }
+    const err = await res.text().catch(() => '');
+    throw new Error(`API ${res.status}: ${(err || '').slice(0, 200)}`);
+  }
+  throw lastErr || new Error('request failed');
+}
+
 // Resolve which issues are involved in candidate pairs, returns:
 //   { involved: [issueObj...], localPairs: [[localA, localB]...], idxToLocal }
 function buildBlockPayload(issues, candidatePairs) {
@@ -62,20 +97,11 @@ Rules:
 - reason: one short sentence
 - Return {"groups":[]} only if truly no duplicates exist`;
 
-  const response = await fetch('/api/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
-    }),
+  const response = await callMessages({
+    model: 'claude-sonnet-4-5',
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
   });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`API ${response.status}: ${err.slice(0, 300)}`);
-  }
 
   const data = await response.json();
   const raw  = data.content?.find(b => b.type === 'text')?.text || '{"groups":[]}';
