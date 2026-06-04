@@ -56,29 +56,9 @@ function buildBlockPayload(issues, candidatePairs) {
   return { involved, localPairs };
 }
 
-async function analyzeBlock(block, issues, candidatePairs) {
-  if (!candidatePairs.length) return [];
-
-  const { involved, localPairs } = buildBlockPayload(issues, candidatePairs);
-
-  const issueList = involved.map((iss, i) => {
-    const init = iss.initiative ? ` || ${iss.initiative}` : '';
-    return `[${i}] ${iss.takeaway}${init}`;
-  }).join('\n');
-
-  // Compact hint pairs: "(0,3)(0,7)(1,5)..."
-  const hints = localPairs.map(([a, b]) => `(${a},${b})`).join('');
-
-  const prompt = `You are an expert consultant deduplicating audit findings from a sales transformation project.
-
-Building block: "${block}"
-
-Below are ${involved.length} issues (index: "Key Takeaway || Initiative"). Many describe the SAME underlying problem in different words.
-
-${issueList}
-
-A fast pre-filter flagged these index pairs as textually similar (hints only — verify each):
-${hints}
+// Static system instructions — sent once per session (cached by the API after the
+// first call; subsequent calls in the same 5-min window pay only the cache-read rate).
+const _STAGE2_SYSTEM = `You are an expert consultant deduplicating audit findings from a sales transformation project.
 
 TASK: Group issues that describe the SAME underlying problem into clusters.
 - A group can have 2, 3, or many members.
@@ -102,10 +82,34 @@ Rules:
 - reason: one short sentence
 - Return {"groups":[]} only if truly no duplicates exist`;
 
+async function analyzeBlock(block, issues, candidatePairs) {
+  if (!candidatePairs.length) return [];
+
+  const { involved, localPairs } = buildBlockPayload(issues, candidatePairs);
+
+  const issueList = involved.map((iss, i) => {
+    const init = iss.initiative ? ` || ${iss.initiative}` : '';
+    return `[${i}] ${iss.takeaway}${init}`;
+  }).join('\n');
+
+  // Compact hint pairs: "(0,3)(0,7)(1,5)..."
+  const hints = localPairs.map(([a, b]) => `(${a},${b})`).join('');
+
+  const userPrompt = `Building block: "${block}"
+
+Below are ${involved.length} issues (index: "Key Takeaway || Initiative"). Many describe the SAME underlying problem in different words.
+
+${issueList}
+
+A fast pre-filter flagged these index pairs as textually similar (hints only — verify each):
+${hints}`;
+
   const response = await callMessages({
-    model: 'claude-sonnet-4-5',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4096,
-    messages: [{ role: 'user', content: prompt }],
+    temperature: 0,
+    system: [{ type: 'text', text: _STAGE2_SYSTEM, cache_control: { type: 'ephemeral' } }],
+    messages: [{ role: 'user', content: userPrompt }],
   });
 
   const data = await response.json();

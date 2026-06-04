@@ -35,9 +35,10 @@ import api_handlers
 
 PORT = int(os.environ.get('PORT', sys.argv[1] if len(sys.argv) > 1 else 7724))
 DIR  = os.path.dirname(os.path.abspath(__file__))
-API_KEY   = os.environ.get('ANTHROPIC_API_KEY', '')
-MODEL     = os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-5')
-MOCK_MODE = not API_KEY
+API_KEY      = os.environ.get('ANTHROPIC_API_KEY', '')
+MODEL        = os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
+VERIFY_MODEL = os.environ.get('ANTHROPIC_VERIFY_MODEL', 'claude-haiku-4-5-20251001')
+MOCK_MODE    = not API_KEY
 
 # Embeddings provider (semantic candidate generation). Prefer Voyage (Anthropic's
 # recommended embeddings partner); fall back to OpenAI; else disabled → the client
@@ -61,7 +62,8 @@ if MOCK_MODE:
     print("   Set ANTHROPIC_API_KEY=sk-ant-... to use the real API.", flush=True)
 else:
     print(f"✓  API key found (****{API_KEY[-6:]}). Using real Anthropic API.", flush=True)
-    print(f"   Model: {MODEL}  (override with ANTHROPIC_MODEL=...)", flush=True)
+    print(f"   Clustering model: {MODEL}  (override with ANTHROPIC_MODEL=...)", flush=True)
+    print(f"   Verify model:     {VERIFY_MODEL}  (override with ANTHROPIC_VERIFY_MODEL=...)", flush=True)
 
 if EMBED_PROVIDER:
     print(f"✓  Embeddings: {EMBED_PROVIDER} ({EMBED_MODEL}).", flush=True)
@@ -113,11 +115,22 @@ def mock_response(n_issues, hint_pairs):
     return {"groups": groups}
 
 
+def _is_verify_call(payload):
+    """Return True if this is a verification call (system prompt contains 'subgroups')."""
+    system = payload.get('system', [])
+    if isinstance(system, list):
+        return any('subgroups' in (s.get('text', '') if isinstance(s, dict) else '') for s in system)
+    if isinstance(system, str):
+        return 'subgroups' in system
+    return False
+
+
 def real_anthropic_call(body_bytes):
-    """Forward to the Anthropic API (model chosen server-side)."""
+    """Forward to the Anthropic API (model chosen server-side).
+    Verification calls use the cheaper Haiku model; clustering calls use Sonnet."""
     try:
         payload = json.loads(body_bytes)
-        payload['model'] = MODEL
+        payload['model'] = VERIFY_MODEL if _is_verify_call(payload) else MODEL
         body_bytes = json.dumps(payload).encode()
     except Exception:
         pass
@@ -128,6 +141,7 @@ def real_anthropic_call(body_bytes):
             'Content-Type': 'application/json',
             'x-api-key': API_KEY,
             'anthropic-version': '2023-06-01',
+            'anthropic-beta': 'prompt-caching-2024-07-31',
         },
         method='POST',
     )
@@ -260,9 +274,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             # call is traceable in the logs (which block failed, how long it took).
             prompt = ''
             block = '?'
+            is_verify = False
             try:
                 payload = json.loads(body)
                 prompt = payload.get('messages', [{}])[0].get('content', '')
+                is_verify = _is_verify_call(payload)
                 mb = re.search(r'Building block:\s*"([^"]+)"', prompt)
                 if mb:
                     block = mb.group(1)
@@ -273,7 +289,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             print(f"[messages] start  block={block!r} user={user['email']} bytes_in={len(body)}", flush=True)
             try:
                 if MOCK_MODE:
-                    if 'subgroups' in prompt:
+                    if is_verify:
                         # Verification prompt → keep the cluster intact (one subgroup
                         # of all listed ids). Real LLM would split when appropriate.
                         ids = [int(x) for x in re.findall(r'\[(\d+)\]', prompt)]

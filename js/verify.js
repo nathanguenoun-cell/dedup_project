@@ -18,6 +18,19 @@ function needsVerification(group) {
       || (group.duplicates.length + 1) >= VERIFY_SIZE_ATLEAST;
 }
 
+// Static system instructions for the verification pass (cached by the API).
+const _VERIFY_SYSTEM = `You are auditing a proposed cluster of "duplicate" audit findings to make sure it is correct.
+
+Return ONLY the subset(s) that genuinely describe the SAME root problem AND would be
+resolved by the SAME corrective action. Rules:
+- Split into multiple subgroups if the cluster actually mixes 2+ distinct problems.
+- Drop any id that does not truly belong with the others.
+- A valid subgroup has 2+ ids. Ignore singletons (a lone id = not a duplicate).
+
+Respond with ONLY valid JSON (no markdown):
+{"subgroups":[[id,id,...],[id,id,...]],"reason":"one short sentence"}
+If none of the members are true duplicates, return {"subgroups":[],"reason":"..."}`;
+
 // Re-examine one finalized group {block, primary, duplicates, reasoning, similarity}.
 // Returns an array of refined groups in the SAME finalized shape (0, 1 or more).
 async function verifyGroup(group) {
@@ -29,29 +42,20 @@ async function verifyGroup(group) {
     return `[${m.id}] ${m.takeaway}${init}`;
   }).join('\n');
 
-  const prompt = `You are auditing a proposed cluster of "duplicate" audit findings to make sure it is correct.
-
-Building block: "${group.block}"
+  const userPrompt = `Building block: "${group.block}"
 Proposed cluster (id: "Key Takeaway || Initiative"):
 ${list}
 
-These were grouped as the SAME underlying problem, but the grouping may be too loose.
-Return ONLY the subset(s) that genuinely describe the SAME root problem AND would be
-resolved by the SAME corrective action. Rules:
-- Split into multiple subgroups if the cluster actually mixes 2+ distinct problems.
-- Drop any id that does not truly belong with the others.
-- A valid subgroup has 2+ ids. Ignore singletons (a lone id = not a duplicate).
-
-Respond with ONLY valid JSON (no markdown):
-{"subgroups":[[id,id,...],[id,id,...]],"reason":"one short sentence"}
-If none of the members are true duplicates, return {"subgroups":[],"reason":"..."}`;
+These were grouped as the SAME underlying problem, but the grouping may be too loose.`;
 
   let parsed;
   try {
     const res = await callMessages({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      messages: [{ role: 'user', content: prompt }],
+      temperature: 0,
+      system: [{ type: 'text', text: _VERIFY_SYSTEM, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: userPrompt }],
     });
     const data = await res.json();
     const raw = data.content?.find(b => b.type === 'text')?.text || '{"subgroups":[]}';
