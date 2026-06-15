@@ -38,6 +38,7 @@ let state = {
   takeawaysSelected: new Set(),
   takeawaysHighlighted: new Set(),
   takeawaysConfirmed: false,   // user explicitly confirmed the selection for Roadmap
+  tkBlockIdx: 0,               // which building-block tab is open in Key Takeaways
 };
 
 // Max key takeaways a building block can carry to the next step.
@@ -107,6 +108,7 @@ async function openProject(projectId) {
     recomputeRemoved();              // derive removed set from decisions (consistent)
     state.fileName = d.file_name || '';
     state.stage = 'dedup';
+    state.tkBlockIdx = 0;
     state.currentBlock = 'all';
     state.currentGroupIdx = 0;
     draft = { gi: null, removed: new Set() };
@@ -308,91 +310,130 @@ function renderKeyTakeaways() {
     <span class="action-hint" id="tkActionHint"></span>`;
   actionRow.style.display = 'flex';
 
+  if (state.tkBlockIdx >= _tkBlocks.length) state.tkBlockIdx = 0;
+
   panel.innerHTML = `
     <div class="tk-wrap">
       <div class="tk-head">
         <div>
           <h2 class="tk-title">Key Takeaways</h2>
-          <p class="tk-sub">Select up to ${TAKEAWAYS_PER_BLOCK} takeaways per building block to carry
-             forward, and highlight the ones that matter most.</p>
+          <p class="tk-sub">Pick a building block, select up to ${TAKEAWAYS_PER_BLOCK} takeaways to
+             carry forward, and star the ones that matter most.</p>
         </div>
         <div class="tk-summary" id="tkSummary"></div>
       </div>
-      <div id="tkBlocks">
-        ${_tkBlocks.map((b, i) => renderTakeawayBlock(b, i, byBlock[b])).join('')}
-      </div>
+      <div class="tk-tabs" id="tkTabs">${tkTabsHtml()}</div>
+      <div class="tk-panel" id="tkPanel">${tkPanelHtml()}</div>
     </div>`;
   updateTakeawaySummary();
 }
 
-function renderTakeawayBlock(block, idx, items) {
-  const sel = items.filter(d => state.takeawaysSelected.has(d.id)).length;
-  const full = sel >= TAKEAWAYS_PER_BLOCK;
-  return `
-    <section class="tk-block" id="tk-block-${idx}">
-      <div class="tk-block-head">
-        <span class="tk-block-name">${escapeHtml(block)}</span>
-        <span class="tk-block-count ${full ? 'full' : ''}">${sel} / ${TAKEAWAYS_PER_BLOCK} selected</span>
-      </div>
-      <div class="tk-list">
-        ${items.map(d => renderTakeawayRow(d, idx, full)).join('')}
-      </div>
-    </section>`;
+// One tab per building block, with a live "selected / cap" badge.
+function tkTabsHtml() {
+  const byBlock = keptTakeawaysByBlock();
+  return _tkBlocks.map((b, i) => {
+    const sel = (byBlock[b] || []).filter(d => state.takeawaysSelected.has(d.id)).length;
+    const full = sel >= TAKEAWAYS_PER_BLOCK;
+    return `
+      <button class="tk-tab ${i === state.tkBlockIdx ? 'active' : ''}" onclick="switchTkBlock(${i})">
+        <span class="tk-tab-name">${escapeHtml(b)}</span>
+        <span class="tk-tab-badge ${full ? 'full' : ''} ${sel ? 'has' : ''}">${sel}/${TAKEAWAYS_PER_BLOCK}</span>
+      </button>`;
+  }).join('');
 }
 
-function renderTakeawayRow(d, blockIdx, blockFull) {
-  const selected = state.takeawaysSelected.has(d.id);
-  const highlighted = state.takeawaysHighlighted.has(d.id);
-  const lockSelect = !selected && blockFull;   // can't add once the block is full
-  const meta = [d.type, d.initiative].filter(Boolean)
-    .map(x => `<span class="tk-chip">${escapeHtml(x)}</span>`).join('');
+// The active block's takeaway list.
+function tkPanelHtml() {
+  const block = _tkBlocks[state.tkBlockIdx];
+  const items = (keptTakeawaysByBlock()[block] || []);
+  const sel = items.filter(d => state.takeawaysSelected.has(d.id)).length;
+  const hi = items.filter(d => state.takeawaysHighlighted.has(d.id)).length;
+  const full = sel >= TAKEAWAYS_PER_BLOCK;
   return `
-    <div class="tk-item ${selected ? 'selected' : ''} ${highlighted ? 'highlighted' : ''}">
-      <button class="tk-check ${lockSelect ? 'locked' : ''}" ${lockSelect ? 'disabled' : ''}
-              onclick="toggleTakeaway(${d.id}, ${blockIdx})"
-              title="${selected ? 'Remove from selection' : (lockSelect ? 'Block limit reached' : 'Select')}">
-        ${selected ? '✓' : ''}
-      </button>
-      <div class="tk-body">
-        <div class="tk-text">${escapeHtml(d.takeaway)}</div>
-        ${meta ? `<div class="tk-meta">${meta}</div>` : ''}
-      </div>
-      <button class="tk-star ${highlighted ? 'on' : ''}" ${selected ? '' : 'style="visibility:hidden"'}
-              onclick="toggleHighlight(${d.id}, ${blockIdx})"
-              title="${highlighted ? 'Remove highlight' : 'Highlight'}">★</button>
+    <div class="tk-block-bar">
+      <span class="tk-block-name">${escapeHtml(block)}</span>
+      <span class="tk-block-count ${full ? 'full' : ''}">
+        ${sel} / ${TAKEAWAYS_PER_BLOCK} selected${hi ? ` · ${hi} highlighted` : ''}
+      </span>
+    </div>
+    <div class="tk-list">
+      ${items.map(d => renderTakeawayRow(d, full)).join('')}
     </div>`;
 }
 
-function toggleTakeaway(id, blockIdx) {
+function renderTakeawayRow(d, blockFull) {
+  const selected = state.takeawaysSelected.has(d.id);
+  const highlighted = state.takeawaysHighlighted.has(d.id);
+  const locked = !selected && blockFull;   // block is full and this row isn't in it
+  const initiative = (d.initiative || '').trim();
+  return `
+    <div class="tk-item ${selected ? 'selected' : ''} ${highlighted ? 'highlighted' : ''}">
+      <button class="tk-check ${locked ? 'locked' : ''}" ${locked ? 'disabled' : ''}
+              onclick="toggleTakeaway(${d.id})"
+              title="${selected ? 'Remove from selection' : (locked ? 'Block limit reached' : 'Select')}">
+        ${selected ? '✓' : ''}
+      </button>
+      <div class="tk-body">
+        <div class="tk-field">
+          <span class="tk-label">Key Takeaway</span>
+          <div class="tk-text">${escapeHtml(d.takeaway)}</div>
+        </div>
+        <div class="tk-field">
+          <span class="tk-label">Initiative</span>
+          <div class="tk-init ${initiative ? '' : 'empty'}">${initiative ? escapeHtml(initiative) : '—'}</div>
+        </div>
+      </div>
+      <button class="tk-star ${highlighted ? 'on' : ''} ${locked ? 'locked' : ''}" ${locked ? 'disabled' : ''}
+              onclick="toggleHighlight(${d.id})"
+              title="${highlighted ? 'Remove highlight' : (locked ? 'Block limit reached' : 'Highlight')}">★</button>
+    </div>`;
+}
+
+function switchTkBlock(idx) {
+  state.tkBlockIdx = idx;
+  refreshTk();
+}
+
+function toggleTakeaway(id) {
   state.takeawaysConfirmed = false;   // selection changed → must re-confirm
   if (state.takeawaysSelected.has(id)) {
     state.takeawaysSelected.delete(id);
     state.takeawaysHighlighted.delete(id);    // highlight only applies to selected
-  } else {
-    const block = _tkBlocks[blockIdx];
-    const byBlock = keptTakeawaysByBlock();
-    const count = (byBlock[block] || []).filter(d => state.takeawaysSelected.has(d.id)).length;
-    if (count >= TAKEAWAYS_PER_BLOCK) return;  // enforce the per-block cap
-    state.takeawaysSelected.add(id);
+  } else if (!addTakeawayWithinCap(id)) {
+    return;                                    // block full → no-op
   }
-  refreshTakeawayBlock(blockIdx);
+  refreshTk();
   saveProjectData();
 }
 
-function toggleHighlight(id, blockIdx) {
-  if (!state.takeawaysSelected.has(id)) return;   // must be kept before highlighting
-  state.takeawaysConfirmed = false;               // selection changed → must re-confirm
-  if (state.takeawaysHighlighted.has(id)) state.takeawaysHighlighted.delete(id);
-  else state.takeawaysHighlighted.add(id);
-  refreshTakeawayBlock(blockIdx);
+// Star always works: highlighting an unselected takeaway also keeps it (if room).
+function toggleHighlight(id) {
+  if (state.takeawaysHighlighted.has(id)) {
+    state.takeawaysHighlighted.delete(id);
+  } else {
+    if (!state.takeawaysSelected.has(id) && !addTakeawayWithinCap(id)) return;
+    state.takeawaysHighlighted.add(id);
+  }
+  state.takeawaysConfirmed = false;
+  refreshTk();
   saveProjectData();
 }
 
-function refreshTakeawayBlock(blockIdx) {
-  const block = _tkBlocks[blockIdx];
+// Add `id` to the selection unless its block is already at the cap. Returns success.
+function addTakeawayWithinCap(id) {
+  const block = _tkBlocks[state.tkBlockIdx];
   const byBlock = keptTakeawaysByBlock();
-  const el = document.getElementById('tk-block-' + blockIdx);
-  if (el) el.outerHTML = renderTakeawayBlock(block, blockIdx, byBlock[block] || []);
+  const count = (byBlock[block] || []).filter(d => state.takeawaysSelected.has(d.id)).length;
+  if (count >= TAKEAWAYS_PER_BLOCK) return false;
+  state.takeawaysSelected.add(id);
+  return true;
+}
+
+function refreshTk() {
+  const tabs = document.getElementById('tkTabs');
+  const panel = document.getElementById('tkPanel');
+  if (tabs) tabs.innerHTML = tkTabsHtml();
+  if (panel) panel.innerHTML = tkPanelHtml();
   updateTakeawaySummary();
 }
 
