@@ -10,8 +10,19 @@ let BLOCK_COUNTS = {};
 
 let PROJECT = { id: null, name: '', status: 'draft', isOwner: false, members: [] };
 
+// Project pipeline modules shown in the header flow. 'dedup' is the live module;
+// the rest are scaffolded placeholders that future features will fill in.
+const STAGES = [
+  { key: 'dedup',     label: 'Deduplication' },
+  { key: 'takeaways', label: 'Key Takeaways' },
+  { key: 'roadmap',   label: 'Roadmap' },
+  { key: 'deck',      label: 'Final Deck' },
+];
+const STAGE_BUILT = { dedup: true, takeaways: false, roadmap: false, deck: false };
+
 let state = {
-  tab: 'issues',          // 'issues' | 'review' | 'result'
+  stage: 'dedup',         // which pipeline module is open (see STAGES)
+  tab: 'issues',          // 'issues' | 'review' | 'result' (within the Deduplication module)
   currentBlock: 'all',
   groups: [],
   decisions: {},
@@ -83,6 +94,7 @@ async function openProject(projectId) {
     migrateDecisions();              // upgrade any legacy decision shapes
     recomputeRemoved();              // derive removed set from decisions (consistent)
     state.fileName = d.file_name || '';
+    state.stage = 'dedup';
     state.currentBlock = 'all';
     state.currentGroupIdx = 0;
     draft = { gi: null, removed: new Set() };
@@ -158,6 +170,7 @@ function renderProjectShell() {
           <button class="nav-btn" onclick="goDashboard()">Dashboard</button>
         </div>
       </div>
+      <div class="flow-nav" id="flowNav"></div>
       <div class="project-tabs" id="projectTabs"></div>
     </div>
     <div class="main">
@@ -168,7 +181,67 @@ function renderProjectShell() {
       </div>
     </div>`;
   updateHeader();
+  renderFlow();
   renderTabs();
+}
+
+// ─── Module flow (project pipeline stepper) ──────────────────────
+function renderFlow() {
+  const el = document.getElementById('flowNav');
+  if (!el) return;
+  const activeIdx = STAGES.findIndex(s => s.key === state.stage);
+  el.innerHTML = STAGES.map((s, i) => {
+    const built = STAGE_BUILT[s.key];
+    const cls = s.key === state.stage ? 'active'
+              : (i < activeIdx ? 'done' : 'upcoming');
+    const soon = built ? '' : `<span class="flow-soon">soon</span>`;
+    const step = `
+      <button class="flow-step ${cls}" onclick="switchStage('${s.key}')" title="${escapeHtml(s.label)}">
+        <span class="flow-idx">${i + 1}</span>${escapeHtml(s.label)}${soon}
+      </button>`;
+    const sep = i < STAGES.length - 1 ? `<span class="flow-sep">›</span>` : '';
+    return step + sep;
+  }).join('');
+}
+
+function switchStage(stage) {
+  if (state.stage === stage) return;
+  state.stage = stage;
+  renderFlow();
+  // The dedup sub-tabs only belong to the Deduplication module.
+  const tabs = document.getElementById('projectTabs');
+  if (tabs) tabs.style.display = stage === 'dedup' ? '' : 'none';
+  renderStage();
+}
+
+// Dispatch the content area based on the active pipeline module.
+function renderStage() {
+  const sidebar = document.getElementById('projectSidebar');
+  document.getElementById('actionRow').style.display = 'none';
+  if (state.stage === 'dedup') {
+    if (sidebar) sidebar.style.display = '';
+    renderTab();
+    return;
+  }
+  // Future modules: scaffolded placeholder until their feature lands.
+  if (sidebar) sidebar.style.display = 'none';
+  renderStagePlaceholder();
+}
+
+function renderStagePlaceholder() {
+  const meta = STAGES.find(s => s.key === state.stage);
+  const blurb = {
+    takeaways: 'Auto-summarised insights from the deduplicated issues — the headline findings per building block.',
+    roadmap:   'Turn the prioritised findings into a sequenced action plan with owners and timeframes.',
+    deck:      'Assemble takeaways and roadmap into a client-ready presentation, exportable in one click.',
+  }[state.stage] || 'This module is coming soon.';
+  document.getElementById('mainPanel').innerHTML = `
+    <div class="stage-placeholder">
+      <div class="sp-icon">🚧</div>
+      <h2>${escapeHtml(meta ? meta.label : 'Coming soon')}</h2>
+      <p>${escapeHtml(blurb)}</p>
+      <div class="sp-soon">In development</div>
+    </div>`;
 }
 
 function updateHeader() {
