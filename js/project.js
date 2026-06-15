@@ -18,7 +18,7 @@ const STAGES = [
   { key: 'roadmap',   label: 'Roadmap' },
   { key: 'deck',      label: 'Final Deck' },
 ];
-const STAGE_BUILT = { dedup: true, takeaways: false, roadmap: false, deck: false };
+const STAGE_BUILT = { dedup: true, takeaways: true, roadmap: false, deck: false };
 
 let state = {
   stage: 'dedup',         // which pipeline module is open (see STAGES)
@@ -33,7 +33,14 @@ let state = {
   filterStatus: 'all',
   fileName: '',
   failedBlocks: [],       // blocks whose Stage-2 call failed (e.g. 502) — retryable
+  // Key Takeaways module: ids of deduplicated takeaways kept for the next step,
+  // and the subset of those highlighted. Sets for O(1) toggles.
+  takeawaysSelected: new Set(),
+  takeawaysHighlighted: new Set(),
 };
+
+// Max key takeaways a building block can carry to the next step.
+const TAKEAWAYS_PER_BLOCK = 10;
 
 // Max simultaneous /api/messages calls. Firing one per block all at once
 // overloads the proxy on a small instance → 502s. 3 keeps it fast but safe.
@@ -91,6 +98,9 @@ async function openProject(projectId) {
     state.groups = d.groups || [];
     state.decisions = d.decisions || {};
     state.failedBlocks = d.failed_blocks || [];
+    const tk = d.takeaways || {};
+    state.takeawaysSelected = new Set(tk.selected || []);
+    state.takeawaysHighlighted = new Set(tk.highlighted || []);
     migrateDecisions();              // upgrade any legacy decision shapes
     recomputeRemoved();              // derive removed set from decisions (consistent)
     state.fileName = d.file_name || '';
@@ -125,6 +135,10 @@ function saveProjectData(immediate) {
     decisions: state.decisions,
     removed_ids: [...state.removedIds],
     failed_blocks: state.failedBlocks || [],
+    takeaways: {
+      selected: [...state.takeawaysSelected],
+      highlighted: [...state.takeawaysHighlighted],
+    },
     status: PROJECT.status,
   };
   const doSave = () => api.saveData(PROJECT.id, payload).catch(e => console.warn('save failed', e));
@@ -223,6 +237,11 @@ function renderStage() {
     renderTab();
     return;
   }
+  if (state.stage === 'takeaways') {
+    if (sidebar) sidebar.style.display = 'none';
+    renderKeyTakeaways();
+    return;
+  }
   // Future modules: scaffolded placeholder until their feature lands.
   if (sidebar) sidebar.style.display = 'none';
   renderStagePlaceholder();
@@ -242,6 +261,132 @@ function renderStagePlaceholder() {
       <p>${escapeHtml(blurb)}</p>
       <div class="sp-soon">In development</div>
     </div>`;
+}
+
+// ─── Key Takeaways module ────────────────────────────────────────
+// Candidates are the deduplicated (kept) takeaways grouped by building block.
+// Per block the user selects up to TAKEAWAYS_PER_BLOCK to carry forward, and may
+// highlight any of the selected ones.
+
+let _tkBlocks = [];   // building-block names (with kept items), stable index for handlers
+
+function keptTakeawaysByBlock() {
+  const out = {};
+  RAW_DATA.forEach(d => {
+    if (state.removedIds.has(d.id)) return;   // dropped in deduplication
+    (out[d.block] = out[d.block] || []).push(d);
+  });
+  return out;
+}
+
+function renderKeyTakeaways() {
+  const byBlock = keptTakeawaysByBlock();
+  _tkBlocks = BLOCKS.filter(b => byBlock[b] && byBlock[b].length);
+  const panel = document.getElementById('mainPanel');
+
+  if (!_tkBlocks.length) {
+    panel.innerHTML = `
+      <div class="stage-placeholder">
+        <div class="sp-icon">📋</div>
+        <h2>No takeaways yet</h2>
+        <p>Import data and run the Deduplication step first — the surviving
+           takeaways will appear here, grouped by building block, ready to select.</p>
+      </div>`;
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="tk-wrap">
+      <div class="tk-head">
+        <div>
+          <h2 class="tk-title">Key Takeaways</h2>
+          <p class="tk-sub">Select up to ${TAKEAWAYS_PER_BLOCK} takeaways per building block to carry
+             forward, and highlight the ones that matter most.</p>
+        </div>
+        <div class="tk-summary" id="tkSummary"></div>
+      </div>
+      <div id="tkBlocks">
+        ${_tkBlocks.map((b, i) => renderTakeawayBlock(b, i, byBlock[b])).join('')}
+      </div>
+    </div>`;
+  updateTakeawaySummary();
+}
+
+function renderTakeawayBlock(block, idx, items) {
+  const sel = items.filter(d => state.takeawaysSelected.has(d.id)).length;
+  const full = sel >= TAKEAWAYS_PER_BLOCK;
+  return `
+    <section class="tk-block" id="tk-block-${idx}">
+      <div class="tk-block-head">
+        <span class="tk-block-name">${escapeHtml(block)}</span>
+        <span class="tk-block-count ${full ? 'full' : ''}">${sel} / ${TAKEAWAYS_PER_BLOCK} selected</span>
+      </div>
+      <div class="tk-list">
+        ${items.map(d => renderTakeawayRow(d, idx, full)).join('')}
+      </div>
+    </section>`;
+}
+
+function renderTakeawayRow(d, blockIdx, blockFull) {
+  const selected = state.takeawaysSelected.has(d.id);
+  const highlighted = state.takeawaysHighlighted.has(d.id);
+  const lockSelect = !selected && blockFull;   // can't add once the block is full
+  const meta = [d.type, d.initiative].filter(Boolean)
+    .map(x => `<span class="tk-chip">${escapeHtml(x)}</span>`).join('');
+  return `
+    <div class="tk-item ${selected ? 'selected' : ''} ${highlighted ? 'highlighted' : ''}">
+      <button class="tk-check ${lockSelect ? 'locked' : ''}" ${lockSelect ? 'disabled' : ''}
+              onclick="toggleTakeaway(${d.id}, ${blockIdx})"
+              title="${selected ? 'Remove from selection' : (lockSelect ? 'Block limit reached' : 'Select')}">
+        ${selected ? '✓' : ''}
+      </button>
+      <div class="tk-body">
+        <div class="tk-text">${escapeHtml(d.takeaway)}</div>
+        ${meta ? `<div class="tk-meta">${meta}</div>` : ''}
+      </div>
+      <button class="tk-star ${highlighted ? 'on' : ''}" ${selected ? '' : 'style="visibility:hidden"'}
+              onclick="toggleHighlight(${d.id}, ${blockIdx})"
+              title="${highlighted ? 'Remove highlight' : 'Highlight'}">★</button>
+    </div>`;
+}
+
+function toggleTakeaway(id, blockIdx) {
+  if (state.takeawaysSelected.has(id)) {
+    state.takeawaysSelected.delete(id);
+    state.takeawaysHighlighted.delete(id);    // highlight only applies to selected
+  } else {
+    const block = _tkBlocks[blockIdx];
+    const byBlock = keptTakeawaysByBlock();
+    const count = (byBlock[block] || []).filter(d => state.takeawaysSelected.has(d.id)).length;
+    if (count >= TAKEAWAYS_PER_BLOCK) return;  // enforce the per-block cap
+    state.takeawaysSelected.add(id);
+  }
+  refreshTakeawayBlock(blockIdx);
+  saveProjectData();
+}
+
+function toggleHighlight(id, blockIdx) {
+  if (!state.takeawaysSelected.has(id)) return;   // must be kept before highlighting
+  if (state.takeawaysHighlighted.has(id)) state.takeawaysHighlighted.delete(id);
+  else state.takeawaysHighlighted.add(id);
+  refreshTakeawayBlock(blockIdx);
+  saveProjectData();
+}
+
+function refreshTakeawayBlock(blockIdx) {
+  const block = _tkBlocks[blockIdx];
+  const byBlock = keptTakeawaysByBlock();
+  const el = document.getElementById('tk-block-' + blockIdx);
+  if (el) el.outerHTML = renderTakeawayBlock(block, blockIdx, byBlock[block] || []);
+  updateTakeawaySummary();
+}
+
+function updateTakeawaySummary() {
+  const el = document.getElementById('tkSummary');
+  if (!el) return;
+  el.innerHTML =
+    `<span class="tk-sum-num">${state.takeawaysSelected.size}</span> selected` +
+    ` · <span class="tk-sum-num hi">${state.takeawaysHighlighted.size}</span> highlighted`;
 }
 
 function updateHeader() {

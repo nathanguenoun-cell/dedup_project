@@ -79,6 +79,11 @@ def init_db():
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(project_data)")]
         if "failed_blocks" not in cols:
             conn.execute("ALTER TABLE project_data ADD COLUMN failed_blocks TEXT NOT NULL DEFAULT '[]'")
+        # Key Takeaways module: which deduplicated takeaways are kept for the next
+        # step and which of those are highlighted. Shape: {"selected": [...ids],
+        # "highlighted": [...ids]}.
+        if "takeaways" not in cols:
+            conn.execute("ALTER TABLE project_data ADD COLUMN takeaways TEXT NOT NULL DEFAULT '{}'")
         conn.commit()
     finally:
         conn.close()
@@ -293,7 +298,7 @@ def get_project_data(project_id):
             "SELECT * FROM project_data WHERE project_id = ?", (project_id,)
         ).fetchone()
         if not row:
-            return {"file_name": "", "raw_data": [], "groups": [], "decisions": {}, "removed_ids": [], "failed_blocks": []}
+            return {"file_name": "", "raw_data": [], "groups": [], "decisions": {}, "removed_ids": [], "failed_blocks": [], "takeaways": {}}
         keys = row.keys()
         return {
             "file_name": row["file_name"],
@@ -302,20 +307,21 @@ def get_project_data(project_id):
             "decisions": json.loads(row["decisions"]),
             "removed_ids": json.loads(row["removed_ids"]),
             "failed_blocks": json.loads(row["failed_blocks"]) if "failed_blocks" in keys and row["failed_blocks"] else [],
+            "takeaways": json.loads(row["takeaways"]) if "takeaways" in keys and row["takeaways"] else {},
             "updated_at": row["updated_at"],
         }
     finally:
         conn.close()
 
 
-def save_project_data(project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks=None):
+def save_project_data(project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks=None, takeaways=None):
     """Last-write-wins persistence of the shared dedup state."""
     conn = connect()
     try:
         conn.execute(
             """
-            INSERT INTO project_data (project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks, updated_at)
-            VALUES (?,?,?,?,?,?,?,?)
+            INSERT INTO project_data (project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks, takeaways, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?)
             ON CONFLICT(project_id) DO UPDATE SET
                 file_name=excluded.file_name,
                 raw_data=excluded.raw_data,
@@ -323,6 +329,7 @@ def save_project_data(project_id, file_name, raw_data, groups, decisions, remove
                 decisions=excluded.decisions,
                 removed_ids=excluded.removed_ids,
                 failed_blocks=excluded.failed_blocks,
+                takeaways=excluded.takeaways,
                 updated_at=excluded.updated_at
             """,
             (
@@ -333,6 +340,7 @@ def save_project_data(project_id, file_name, raw_data, groups, decisions, remove
                 json.dumps(decisions or {}),
                 json.dumps(removed_ids or []),
                 json.dumps(failed_blocks or []),
+                json.dumps(takeaways or {}),
                 now(),
             ),
         )
