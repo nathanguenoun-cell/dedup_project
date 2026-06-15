@@ -37,6 +37,7 @@ let state = {
   // and the subset of those highlighted. Sets for O(1) toggles.
   takeawaysSelected: new Set(),
   takeawaysHighlighted: new Set(),
+  takeawaysConfirmed: false,   // user explicitly confirmed the selection for Roadmap
 };
 
 // Max key takeaways a building block can carry to the next step.
@@ -101,6 +102,7 @@ async function openProject(projectId) {
     const tk = d.takeaways || {};
     state.takeawaysSelected = new Set(tk.selected || []);
     state.takeawaysHighlighted = new Set(tk.highlighted || []);
+    state.takeawaysConfirmed = !!tk.confirmed;
     migrateDecisions();              // upgrade any legacy decision shapes
     recomputeRemoved();              // derive removed set from decisions (consistent)
     state.fileName = d.file_name || '';
@@ -138,6 +140,7 @@ function saveProjectData(immediate) {
     takeaways: {
       selected: [...state.takeawaysSelected],
       highlighted: [...state.takeawaysHighlighted],
+      confirmed: state.takeawaysConfirmed,
     },
     status: PROJECT.status,
   };
@@ -283,8 +286,10 @@ function renderKeyTakeaways() {
   const byBlock = keptTakeawaysByBlock();
   _tkBlocks = BLOCKS.filter(b => byBlock[b] && byBlock[b].length);
   const panel = document.getElementById('mainPanel');
+  const actionRow = document.getElementById('actionRow');
 
   if (!_tkBlocks.length) {
+    actionRow.style.display = 'none';
     panel.innerHTML = `
       <div class="stage-placeholder">
         <div class="sp-icon">📋</div>
@@ -294,6 +299,14 @@ function renderKeyTakeaways() {
       </div>`;
     return;
   }
+
+  // Sticky confirm bar — the explicit "carry forward to Roadmap" action.
+  actionRow.innerHTML = `
+    <button class="btn-primary" id="tkConfirmBtn" onclick="confirmTakeaways()">
+      Confirm selections → Roadmap
+    </button>
+    <span class="action-hint" id="tkActionHint"></span>`;
+  actionRow.style.display = 'flex';
 
   panel.innerHTML = `
     <div class="tk-wrap">
@@ -351,6 +364,7 @@ function renderTakeawayRow(d, blockIdx, blockFull) {
 }
 
 function toggleTakeaway(id, blockIdx) {
+  state.takeawaysConfirmed = false;   // selection changed → must re-confirm
   if (state.takeawaysSelected.has(id)) {
     state.takeawaysSelected.delete(id);
     state.takeawaysHighlighted.delete(id);    // highlight only applies to selected
@@ -367,6 +381,7 @@ function toggleTakeaway(id, blockIdx) {
 
 function toggleHighlight(id, blockIdx) {
   if (!state.takeawaysSelected.has(id)) return;   // must be kept before highlighting
+  state.takeawaysConfirmed = false;               // selection changed → must re-confirm
   if (state.takeawaysHighlighted.has(id)) state.takeawaysHighlighted.delete(id);
   else state.takeawaysHighlighted.add(id);
   refreshTakeawayBlock(blockIdx);
@@ -382,11 +397,32 @@ function refreshTakeawayBlock(blockIdx) {
 }
 
 function updateTakeawaySummary() {
+  const total = state.takeawaysSelected.size;
   const el = document.getElementById('tkSummary');
-  if (!el) return;
-  el.innerHTML =
-    `<span class="tk-sum-num">${state.takeawaysSelected.size}</span> selected` +
-    ` · <span class="tk-sum-num hi">${state.takeawaysHighlighted.size}</span> highlighted`;
+  if (el) {
+    el.innerHTML =
+      `<span class="tk-sum-num">${total}</span> selected` +
+      ` · <span class="tk-sum-num hi">${state.takeawaysHighlighted.size}</span> highlighted`;
+  }
+  // Keep the confirm bar in sync: disable when nothing is selected; editing after
+  // a prior confirmation clears the confirmed flag (selection changed).
+  const btn = document.getElementById('tkConfirmBtn');
+  const hint = document.getElementById('tkActionHint');
+  if (btn) btn.disabled = total === 0;
+  if (hint) {
+    hint.innerHTML = total === 0
+      ? 'Select at least one takeaway to continue.'
+      : (state.takeawaysConfirmed
+          ? `✓ Confirmed — ${total} takeaway${total === 1 ? '' : 's'} carried to Roadmap.`
+          : `${total} takeaway${total === 1 ? '' : 's'} across ${_tkBlocks.length} block${_tkBlocks.length === 1 ? '' : 's'} ready to confirm.`);
+  }
+}
+
+function confirmTakeaways() {
+  if (state.takeawaysSelected.size === 0) return;
+  state.takeawaysConfirmed = true;
+  saveProjectData(true);          // persist immediately before moving on
+  switchStage('roadmap');
 }
 
 function updateHeader() {
