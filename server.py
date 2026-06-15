@@ -39,6 +39,9 @@ API_KEY      = os.environ.get('ANTHROPIC_API_KEY', '')
 MODEL        = os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
 VERIFY_MODEL = os.environ.get('ANTHROPIC_VERIFY_MODEL', 'claude-haiku-4-5-20251001')
 MOCK_MODE    = not API_KEY
+# Optional environment label. When set (e.g. ENV_NAME=staging) a banner is shown
+# so you never confuse the staging deploy with production. Unset on prod → no banner.
+ENV_NAME     = os.environ.get('ENV_NAME', '').strip()
 
 # Embeddings provider (semantic candidate generation). Prefer Voyage (Anthropic's
 # recommended embeddings partner); fall back to OpenAI; else disabled → the client
@@ -217,8 +220,36 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path.startswith('/api/'):
             self._try_api('GET', b'')
             return
+        # Inject an environment banner into the page shell when ENV_NAME is set.
+        if ENV_NAME and path in ('/', '/index.html'):
+            self._serve_index_with_banner()
+            return
         # SPA fallback: serve index.html for unknown non-file routes
         super().do_GET()
+
+    def _serve_index_with_banner(self):
+        """Serve index.html with a fixed 'ENV_NAME' banner injected (staging only)."""
+        try:
+            with open(os.path.join(DIR, 'index.html'), 'r', encoding='utf-8') as f:
+                html = f.read()
+        except OSError:
+            super().do_GET()
+            return
+        label = ENV_NAME.upper()
+        banner = (
+            '<div style="position:fixed;top:0;left:0;right:0;z-index:99999;'
+            'background:#b91c1c;color:#fff;text-align:center;font:600 12px/24px '
+            'system-ui,sans-serif;letter-spacing:.08em;height:24px;">'
+            f'{label} — test environment</div>'
+            '<style>body{padding-top:24px;}</style>'
+        )
+        html = html.replace('<body>', '<body>\n' + banner, 1)
+        payload = html.encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def do_PUT(self):
         if not self._try_api('PUT', self._read_body()):
