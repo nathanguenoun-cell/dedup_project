@@ -1286,7 +1286,11 @@ body {
 }
 .rm-row-handle { cursor: grab; color: var(--muted); font-size: 12px; flex: none; touch-action: none; user-select: none; }
 .rm-row-handle:hover { color: var(--accent); }
-.rm-row-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rm-row-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text; }
+.rm-row-edit {
+  flex: 1 1 auto; min-width: 0; font-size: 11px; font-family: inherit; color: var(--text);
+  border: 1px solid var(--accent); border-radius: 4px; padding: 2px 5px; text-align: right;
+}
 .rm-track { position: relative; flex: 1 1 auto; height: 100%; }
 .rm-bar {
   position: absolute; top: 5px; height: 16px; border-radius: 4px; cursor: grab;
