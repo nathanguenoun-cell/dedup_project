@@ -286,15 +286,18 @@ def _add_rect(slide, l, t, w, h, fill_hex, rounded=False):
 
 
 def _add_text(slide, l, t, w, h, text, size, color_hex, bold=False, align=PP_ALIGN.LEFT,
-              wrap=False, anchor=None):
+              wrap=False, anchor=None, line_spacing=None):
     tb = slide.shapes.add_textbox(to_emu(l), to_emu(t), to_emu(w), to_emu(h))
     tf = tb.text_frame
     tf.word_wrap = wrap
+    tf.auto_size = None
     tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
     if anchor is not None:
         tf.vertical_anchor = anchor
     p = tf.paragraphs[0]
     p.alignment = align
+    if line_spacing is not None:
+        p.line_spacing = line_spacing
     r = p.add_run()
     r.text = text
     r.font.size = Pt(size)
@@ -352,13 +355,16 @@ def render_roadmap_slide(prs, roadmap):
     # Rows: numbered label + a block-coloured bar positioned on the 0..1 timeline.
     n = min(len(items), 25)
     row_h = min(0.155, RM_ROWS_H / n)
+    # Size the label so two tight lines fit inside the row (no overflow into the
+    # neighbouring rows). ~0.9 line-spacing, 0.85 fudge for leading; 72pt = 1in.
+    lbl_size = max(4.0, min(RM_LABEL_SIZE, (row_h * 72 / 2) * 0.85))
     for i in range(n):
         it = items[i]
         cy = RM_ROWS_T + i * row_h + row_h / 2
         # Wrap long names onto up to 2 lines, vertically centred on the row.
         _add_text(slide, RM_LABEL_L, cy - row_h / 2, RM_LABEL_W, row_h,
-                  f"{i + 1}. {it.get('label', '')}", RM_LABEL_SIZE, "19323F",
-                  wrap=True, anchor=MSO_ANCHOR.MIDDLE)
+                  f"{i + 1}. {it.get('label', '')}", lbl_size, "19323F",
+                  wrap=True, anchor=MSO_ANCHOR.MIDDLE, line_spacing=0.9)
         s = max(0.0, min(1.0, float(it.get('start', 0) or 0)))
         e = max(s, min(1.0, float(it.get('end', s) or s)))
         bx = RM_PLOT_L + s * RM_PLOT_W
