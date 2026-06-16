@@ -1,14 +1,8 @@
-# Force Nixpacks to provision Python 3 and run the stdlib server.
-# Without this (and with no requirements.txt/main.py marker), Nixpacks may build
-# an image with no `python3` on PATH → "python3: command not found" at start.
-
+# Provision Python 3 with the deck-generation deps baked in via Nix (the nix
+# `python3` has no pip, so we don't pip-install — we hand it a python that
+# already imports python-pptx + openpyxl). lxml/Pillow come in as deps.
 [phases.setup]
-nixPkgs = ["python3"]
-
-# Install the deck-generation deps (python-pptx, openpyxl). --break-system-packages
-# lets pip write into the nix python since there's no managed venv here.
-[phases.install]
-cmds = ["python3 -m pip install --break-system-packages -r requirements.txt"]
+nixPkgs = ["(python3.withPackages (ps: with ps; [ python-pptx openpyxl ]))"]
 
 [start]
 cmd = "python3 server.py"
