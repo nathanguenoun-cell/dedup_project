@@ -18,7 +18,7 @@ from lxml import etree
 from pptx import Presentation
 from pptx.util import Pt
 from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.dml.color import RGBColor
 
 # ── Axis constants (exact EMU match to the template) ─────────────────────────
@@ -247,7 +247,8 @@ def _replace_placeholders(slide, mapping):
 # Coordinates lifted from the template's Gantt slide (inches).
 ROADMAP_SLIDE = 23
 RM_PLOT_L, RM_PLOT_W = 2.66, 6.23      # timeline plot area
-RM_LABEL_L, RM_LABEL_W = 0.26, 2.30    # left initiative-label column
+RM_LABEL_L, RM_LABEL_W = 0.62, 1.98    # left initiative-label column (starts right of the axis title)
+RM_LABEL_SIZE = 6                      # small enough to wrap long names onto 2 lines
 RM_ROWS_T, RM_ROWS_H = 1.03, 3.02      # rows band
 RM_MONTH_T = 0.87                      # month header row (above the rows)
 RM_BAR_H = 0.085
@@ -284,11 +285,14 @@ def _add_rect(slide, l, t, w, h, fill_hex, rounded=False):
     return shp
 
 
-def _add_text(slide, l, t, w, h, text, size, color_hex, bold=False, align=PP_ALIGN.LEFT):
+def _add_text(slide, l, t, w, h, text, size, color_hex, bold=False, align=PP_ALIGN.LEFT,
+              wrap=False, anchor=None):
     tb = slide.shapes.add_textbox(to_emu(l), to_emu(t), to_emu(w), to_emu(h))
     tf = tb.text_frame
-    tf.word_wrap = False
+    tf.word_wrap = wrap
     tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+    if anchor is not None:
+        tf.vertical_anchor = anchor
     p = tf.paragraphs[0]
     p.alignment = align
     r = p.add_run()
@@ -351,8 +355,10 @@ def render_roadmap_slide(prs, roadmap):
     for i in range(n):
         it = items[i]
         cy = RM_ROWS_T + i * row_h + row_h / 2
-        _add_text(slide, RM_LABEL_L, cy - 0.075, RM_LABEL_W, 0.15,
-                  f"{i + 1}. {it.get('label', '')}", 7, "19323F")
+        # Wrap long names onto up to 2 lines, vertically centred on the row.
+        _add_text(slide, RM_LABEL_L, cy - row_h / 2, RM_LABEL_W, row_h,
+                  f"{i + 1}. {it.get('label', '')}", RM_LABEL_SIZE, "19323F",
+                  wrap=True, anchor=MSO_ANCHOR.MIDDLE)
         s = max(0.0, min(1.0, float(it.get('start', 0) or 0)))
         e = max(s, min(1.0, float(it.get('end', s) or s)))
         bx = RM_PLOT_L + s * RM_PLOT_W
