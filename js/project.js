@@ -1097,6 +1097,20 @@ function onDeckFile(e) {
   reader.readAsDataURL(file);
 }
 
+// The roadmap built in the Roadmap stage, shaped for the deck's Gantt slide.
+// Returns null when nothing has been selected (deck keeps the template roadmap).
+function buildRoadmapPayload() {
+  if (!state.roadmapSelected || state.roadmapSelected.size === 0) return null;
+  ensureRoadmapPlan();
+  const plan = state.roadmapPlan;
+  const items = orderedRoadmapItems().map(d => {
+    const it = plan.items[d.id];
+    return { label: rmLabel(d), block: d.block, start: it.start, end: it.end };
+  });
+  if (!items.length) return null;
+  return { cycles: plan.cycles, weights: plan.weights, items };
+}
+
 async function generateDeck() {
   const client = document.getElementById('deckClient').value.trim();
   const btn = document.getElementById('deckGenBtn');
@@ -1116,6 +1130,7 @@ async function generateDeck() {
         segment: document.getElementById('deckSegment').value.trim(),
         date: document.getElementById('deckDate').value.trim(),
         xlsx_b64: _deckXlsx.b64,
+        roadmap: buildRoadmapPayload(),
       }),
     });
     if (!res.ok) {

@@ -12,9 +12,14 @@ The dot geometry/styling is lifted verbatim from the proven standalone
 """
 
 import io
+import re
 from collections import defaultdict
 from lxml import etree
 from pptx import Presentation
+from pptx.util import Pt
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import PP_ALIGN
+from pptx.dml.color import RGBColor
 
 # ── Axis constants (exact EMU match to the template) ─────────────────────────
 AXIS_LEFT    = 4.189
@@ -238,7 +243,111 @@ def _replace_placeholders(slide, mapping):
                     t_elem.text = t_elem.text.replace(token, val)
 
 
-def build_deck(template_file, xlsx_file, client_name, segment=None, date=None):
+# ── Roadmap slide (slide 23 "Gantt view") ───────────────────────────────────
+# Coordinates lifted from the template's Gantt slide (inches).
+ROADMAP_SLIDE = 23
+RM_PLOT_L, RM_PLOT_W = 2.66, 6.23      # timeline plot area
+RM_LABEL_L, RM_LABEL_W = 0.26, 2.30    # left initiative-label column
+RM_ROWS_T, RM_ROWS_H = 1.03, 3.02      # rows band
+RM_BAR_H = 0.085
+RM_CYC_T, RM_CYC_H = 4.17, 0.20        # bottom cycle bars
+RM_CYC_BG  = ["E8EDF8", "EDF0FA", "F0F2FC"]   # cycle column tints
+RM_CYC_BAR = ["1800FF", "2E46FA", "6B7EC9"]   # bottom cycle bar blues
+
+# Exact per-building-block pastel from the template's "Building Blocks" legend.
+ROADMAP_BLOCK_COLORS = {
+    "sales hiring & ramp-up":         "BDD3F3",
+    "sales enablement":               "B4C5DF",
+    "sales performance management":   "DBE3F0",
+    "talent management":              "98B5FE",
+    "demand generation":              "B9CDD5",
+    "sales execution":                "EBC5D0",
+    "client relationship":            "C5C3DF",
+    "revenue operations":             "C8C5C5",
+}
+
+
+def _block_hex(block):
+    key = re.sub(r'^\s*\d+[.)]\s*', '', block or '').strip().lower()
+    return ROADMAP_BLOCK_COLORS.get(key, "C8C5C5")
+
+
+def _add_rect(slide, l, t, w, h, fill_hex, rounded=False):
+    shp = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE if rounded else MSO_SHAPE.RECTANGLE,
+        to_emu(l), to_emu(t), to_emu(w), to_emu(h))
+    shp.fill.solid()
+    shp.fill.fore_color.rgb = RGBColor.from_string(fill_hex)
+    shp.line.fill.background()
+    shp.shadow.inherit = False
+    return shp
+
+
+def _add_text(slide, l, t, w, h, text, size, color_hex, bold=False, align=PP_ALIGN.LEFT):
+    tb = slide.shapes.add_textbox(to_emu(l), to_emu(t), to_emu(w), to_emu(h))
+    tf = tb.text_frame
+    tf.word_wrap = False
+    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+    p = tf.paragraphs[0]
+    p.alignment = align
+    r = p.add_run()
+    r.text = text
+    r.font.size = Pt(size)
+    r.font.bold = bold
+    r.font.name = "Poppins"
+    r.font.color.rgb = RGBColor.from_string(color_hex)
+    return tb
+
+
+def render_roadmap_slide(prs, roadmap):
+    """Replace the template Gantt with the app's roadmap (items, cycles, weights)."""
+    items = (roadmap or {}).get('items') or []
+    if not items or len(prs.slides) < ROADMAP_SLIDE:
+        return
+    slide = prs.slides[ROADMAP_SLIDE - 1]
+
+    cycles = max(1, int(roadmap.get('cycles') or 1))
+    weights = roadmap.get('weights') or [1.0 / cycles] * cycles
+    if len(weights) != cycles:
+        weights = [1.0 / cycles] * cycles
+    tot = sum(weights) or 1.0
+    weights = [w / tot for w in weights]
+
+    # Clear the dynamic plot band (keep title, subtitle, rotated axis label at
+    # L<0, header band, and the Building Blocks legend below T=4.45).
+    for sh in list(slide.shapes):
+        top = sh.top / 914400
+        left = sh.left / 914400
+        if 0.85 <= top <= 4.45 and left >= 0.2:
+            sh._element.getparent().remove(sh._element)
+
+    # Cycle background columns + bottom cycle bars.
+    cum = 0.0
+    for k in range(cycles):
+        x = RM_PLOT_L + cum * RM_PLOT_W
+        w = weights[k] * RM_PLOT_W
+        _add_rect(slide, x, RM_ROWS_T, w, RM_ROWS_H, RM_CYC_BG[k % len(RM_CYC_BG)])
+        _add_rect(slide, x, RM_CYC_T, w, RM_CYC_H, RM_CYC_BAR[k % len(RM_CYC_BAR)], rounded=True)
+        _add_text(slide, x, RM_CYC_T + 0.012, w, RM_CYC_H, f"Cycle {k + 1}", 7, "FFFFFF",
+                  bold=True, align=PP_ALIGN.CENTER)
+        cum += weights[k]
+
+    # Rows: numbered label + a block-coloured bar positioned on the 0..1 timeline.
+    n = min(len(items), 25)
+    row_h = min(0.155, RM_ROWS_H / n)
+    for i in range(n):
+        it = items[i]
+        cy = RM_ROWS_T + i * row_h + row_h / 2
+        _add_text(slide, RM_LABEL_L, cy - 0.075, RM_LABEL_W, 0.15,
+                  f"{i + 1}. {it.get('label', '')}", 7, "19323F")
+        s = max(0.0, min(1.0, float(it.get('start', 0) or 0)))
+        e = max(s, min(1.0, float(it.get('end', s) or s)))
+        bx = RM_PLOT_L + s * RM_PLOT_W
+        bw = max(0.06, (e - s) * RM_PLOT_W)
+        _add_rect(slide, bx, cy - RM_BAR_H / 2, bw, RM_BAR_H, _block_hex(it.get('block', '')), rounded=True)
+
+
+def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, roadmap=None):
     """Generate the filled deck. Returns the .pptx as bytes.
 
     `template_file` / `xlsx_file` are paths or binary file-likes.
@@ -275,6 +384,9 @@ def build_deck(template_file, xlsx_file, client_name, segment=None, date=None):
             y_top = y_list[i] - DOT_WIDTH / 2
             add_dot(slide, score_to_x(topics[i]['rating']), y_top, CLIENT_COLOR)
             add_dot(slide, score_to_x(topics[i]['atscale']), y_top, ATSCALE_COLOR)
+
+    if roadmap:
+        render_roadmap_slide(prs, roadmap)
 
     out = io.BytesIO()
     prs.save(out)

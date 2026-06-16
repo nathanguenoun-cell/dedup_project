@@ -382,7 +382,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 deck = deck_builder.build_deck(
                     template, xlsx, client,
                     segment=(payload.get('segment') or None),
-                    date=(payload.get('date') or None))
+                    date=(payload.get('date') or None),
+                    roadmap=(payload.get('roadmap') or None))
                 print(f"[deck] ok client={client!r} in {time.time()-t0:.1f}s bytes_out={len(deck)}", flush=True)
                 fname = re.sub(r'[^A-Za-z0-9]+', '_', client).strip('_') + '_Revenue_Audit.pptx'
                 self._send_binary(
