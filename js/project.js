@@ -18,7 +18,7 @@ const STAGES = [
   { key: 'roadmap',   label: 'Roadmap' },
   { key: 'deck',      label: 'Final Deck' },
 ];
-const STAGE_BUILT = { dedup: true, takeaways: true, roadmap: false, deck: false };
+const STAGE_BUILT = { dedup: true, takeaways: true, roadmap: true, deck: false };
 
 let state = {
   stage: 'dedup',         // which pipeline module is open (see STAGES)
@@ -39,10 +39,15 @@ let state = {
   takeawaysHighlighted: new Set(),
   takeawaysConfirmed: false,   // user explicitly confirmed the selection for Roadmap
   tkBlockIdx: 0,               // which building-block tab is open in Key Takeaways
+  // Roadmap module: subset of the selected key takeaways picked for the roadmap.
+  roadmapSelected: new Set(),
+  roadmapConfirmed: false,
 };
 
 // Max key takeaways a building block can carry to the next step.
 const TAKEAWAYS_PER_BLOCK = 10;
+// Max items that can be carried into the roadmap.
+const ROADMAP_MAX = 25;
 
 // Max simultaneous /api/messages calls. Firing one per block all at once
 // overloads the proxy on a small instance → 502s. 3 keeps it fast but safe.
@@ -104,6 +109,9 @@ async function openProject(projectId) {
     state.takeawaysSelected = new Set(tk.selected || []);
     state.takeawaysHighlighted = new Set(tk.highlighted || []);
     state.takeawaysConfirmed = !!tk.confirmed;
+    const rm = d.roadmap || {};
+    state.roadmapSelected = new Set(rm.selected || []);
+    state.roadmapConfirmed = !!rm.confirmed;
     migrateDecisions();              // upgrade any legacy decision shapes
     recomputeRemoved();              // derive removed set from decisions (consistent)
     state.fileName = d.file_name || '';
@@ -143,6 +151,10 @@ function saveProjectData(immediate) {
       selected: [...state.takeawaysSelected],
       highlighted: [...state.takeawaysHighlighted],
       confirmed: state.takeawaysConfirmed,
+    },
+    roadmap: {
+      selected: [...state.roadmapSelected],
+      confirmed: state.roadmapConfirmed,
     },
     status: PROJECT.status,
   };
@@ -245,6 +257,11 @@ function renderStage() {
   if (state.stage === 'takeaways') {
     if (sidebar) sidebar.style.display = 'none';
     renderKeyTakeaways();
+    return;
+  }
+  if (state.stage === 'roadmap') {
+    if (sidebar) sidebar.style.display = 'none';
+    renderRoadmap();
     return;
   }
   // Future modules: scaffolded placeholder until their feature lands.
@@ -473,6 +490,150 @@ function confirmTakeaways() {
   state.takeawaysConfirmed = true;
   saveProjectData(true);          // persist immediately before moving on
   switchStage('roadmap');
+}
+
+// ─── Roadmap module ──────────────────────────────────────────────
+// Candidates are the key takeaways selected in the previous step. The user
+// picks up to ROADMAP_MAX of them to carry into the roadmap. Highlighted
+// takeaways are marked but selection is independent.
+
+// Selected key takeaways (still kept), in block order, ready to choose from.
+function roadmapCandidates() {
+  const out = [];
+  BLOCKS.forEach(b => {
+    RAW_DATA.forEach(d => {
+      if (d.block !== b) return;
+      if (state.removedIds.has(d.id)) return;
+      if (state.takeawaysSelected.has(d.id)) out.push(d);
+    });
+  });
+  return out;
+}
+
+function renderRoadmap() {
+  const candidates = roadmapCandidates();
+  const panel = document.getElementById('mainPanel');
+  const actionRow = document.getElementById('actionRow');
+
+  if (!candidates.length) {
+    actionRow.style.display = 'none';
+    panel.innerHTML = `
+      <div class="stage-placeholder">
+        <div class="sp-icon">🗺️</div>
+        <h2>No items to plan yet</h2>
+        <p>Select and confirm key takeaways in the previous step — they become
+           the candidates you sequence into the roadmap here.</p>
+      </div>`;
+    return;
+  }
+
+  // Drop any stale selections (takeaway since unselected/removed upstream).
+  const valid = new Set(candidates.map(d => d.id));
+  [...state.roadmapSelected].forEach(id => { if (!valid.has(id)) state.roadmapSelected.delete(id); });
+
+  actionRow.innerHTML = `
+    <button class="btn-primary" id="rmConfirmBtn" onclick="confirmRoadmap()">
+      Confirm roadmap → Deck
+    </button>
+    <span class="action-hint" id="rmActionHint"></span>`;
+  actionRow.style.display = 'flex';
+
+  panel.innerHTML = `
+    <div class="tk-wrap">
+      <div class="tk-head">
+        <div>
+          <h2 class="tk-title">Roadmap selection</h2>
+          <p class="tk-sub">Choose up to ${ROADMAP_MAX} of the confirmed key takeaways to
+             carry into the roadmap.</p>
+        </div>
+        <div class="tk-summary" id="rmSummary"></div>
+      </div>
+      <div class="tk-panel" id="rmPanel">${rmPanelHtml(candidates)}</div>
+    </div>`;
+  updateRoadmapSummary();
+}
+
+function rmPanelHtml(candidates) {
+  const sel = state.roadmapSelected.size;
+  const full = sel >= ROADMAP_MAX;
+  // Float selected to the top, keep original (block) order within each group.
+  const ordered = candidates
+    .map((d, i) => ({ d, i }))
+    .sort((a, b) => (state.roadmapSelected.has(b.d.id) - state.roadmapSelected.has(a.d.id)) || a.i - b.i)
+    .map(x => x.d);
+  return `
+    <div class="tk-block-bar">
+      <span class="tk-block-name">Confirmed takeaways</span>
+      <span class="tk-block-count ${full ? 'full' : ''}">
+        ${sel} selected in ${candidates.length} item${candidates.length === 1 ? '' : 's'}
+        · ${sel} / ${ROADMAP_MAX} cap
+      </span>
+    </div>
+    <div class="tk-list">
+      ${ordered.map(d => renderRoadmapRow(d, full)).join('')}
+    </div>`;
+}
+
+function renderRoadmapRow(d, full) {
+  const selected = state.roadmapSelected.has(d.id);
+  const highlighted = state.takeawaysHighlighted.has(d.id);
+  const locked = !selected && full;
+  const initiative = (d.initiative || '').trim();
+  return `
+    <div class="tk-item ${selected ? 'selected' : ''} ${highlighted ? 'highlighted' : ''}">
+      <button class="tk-check ${locked ? 'locked' : ''}" ${locked ? 'disabled' : ''}
+              onclick="toggleRoadmap(${d.id})"
+              title="${selected ? 'Remove from roadmap' : (locked ? 'Roadmap limit reached' : 'Add to roadmap')}">
+        ${selected ? '✓' : ''}
+      </button>
+      <div class="tk-body">
+        <div class="tk-field">
+          <span class="tk-label">Key Takeaway${highlighted ? ' ★' : ''}</span>
+          <div class="tk-text">${escapeHtml(d.takeaway)}</div>
+        </div>
+        <div class="tk-field">
+          <span class="tk-label">Initiative · ${escapeHtml(d.block)}</span>
+          <div class="tk-init ${initiative ? '' : 'empty'}">${initiative ? escapeHtml(initiative) : '—'}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function toggleRoadmap(id) {
+  state.roadmapConfirmed = false;
+  if (state.roadmapSelected.has(id)) {
+    state.roadmapSelected.delete(id);
+  } else {
+    if (state.roadmapSelected.size >= ROADMAP_MAX) return;   // cap reached → no-op
+    state.roadmapSelected.add(id);
+  }
+  const panel = document.getElementById('rmPanel');
+  if (panel) panel.innerHTML = rmPanelHtml(roadmapCandidates());
+  updateRoadmapSummary();
+  saveProjectData();
+}
+
+function updateRoadmapSummary() {
+  const total = state.roadmapSelected.size;
+  const el = document.getElementById('rmSummary');
+  if (el) el.innerHTML = `<span class="tk-sum-num">${total}</span> / ${ROADMAP_MAX} selected`;
+  const btn = document.getElementById('rmConfirmBtn');
+  const hint = document.getElementById('rmActionHint');
+  if (btn) btn.disabled = total === 0;
+  if (hint) {
+    hint.innerHTML = total === 0
+      ? 'Select at least one item to build the roadmap.'
+      : (state.roadmapConfirmed
+          ? `✓ Confirmed — ${total} item${total === 1 ? '' : 's'} in the roadmap.`
+          : `${total} item${total === 1 ? '' : 's'} ready to confirm.`);
+  }
+}
+
+function confirmRoadmap() {
+  if (state.roadmapSelected.size === 0) return;
+  state.roadmapConfirmed = true;
+  saveProjectData(true);
+  switchStage('deck');
 }
 
 function updateHeader() {
