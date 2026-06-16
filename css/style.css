@@ -1274,21 +1274,40 @@ body {
   font-size: 11px; color: var(--accent); font-weight: 600; white-space: nowrap;
 }
 
+/* Plot wraps the rows and the full-height divider overlay so they share x. */
+.rm-plot { position: relative; }
 .rm-rows { display: flex; flex-direction: column; }
 .rm-row { display: flex; align-items: center; height: 26px; }
+.rm-row.dragging { opacity: 0.5; }
 .rm-row-label {
-  flex: 0 0 230px; width: 230px; font-size: 11px; color: var(--text); text-align: right;
-  padding-right: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 0 0 230px; width: 230px; font-size: 11px; color: var(--text);
+  display: flex; align-items: center; gap: 6px; justify-content: flex-end;
+  padding-right: 12px; min-width: 0;
 }
+.rm-row-handle { cursor: grab; color: var(--muted); font-size: 12px; flex: none; touch-action: none; user-select: none; }
+.rm-row-handle:hover { color: var(--accent); }
+.rm-row-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rm-track { position: relative; flex: 1 1 auto; height: 100%; }
-.rm-grid-line { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
 .rm-bar {
   position: absolute; top: 5px; height: 16px; border-radius: 4px; cursor: grab;
   box-shadow: 0 1px 2px rgba(0,0,0,0.12); touch-action: none; user-select: none;
 }
 .rm-bar.dragging { cursor: grabbing; box-shadow: 0 3px 10px rgba(0,0,0,0.22); z-index: 3; }
-.rm-bar-grip { position: absolute; right: 0; top: 0; width: 9px; height: 100%; cursor: ew-resize; border-radius: 0 4px 4px 0; }
-.rm-bar-grip:hover { background: rgba(0,0,0,0.12); }
+.rm-bar-grip { position: absolute; top: 0; width: 8px; height: 100%; cursor: ew-resize; }
+.rm-bar-grip.left { left: 0; border-radius: 4px 0 0 4px; }
+.rm-bar-grip.right { right: 0; border-radius: 0 4px 4px 0; }
+.rm-bar-grip:hover { background: rgba(0,0,0,0.14); }
+
+/* Cycle dividers: full-height draggable lines over the track area. */
+.rm-dividers { position: absolute; left: 230px; right: 0; top: 0; bottom: 0; pointer-events: none; }
+.rm-divider {
+  position: absolute; top: 0; bottom: 0; width: 9px; margin-left: -4px;
+  cursor: ew-resize; pointer-events: auto; touch-action: none;
+}
+.rm-divider::before {
+  content: ''; position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; background: var(--border);
+}
+.rm-divider:hover::before, .rm-divider.dragging::before { background: var(--accent); width: 2px; }
 
 .rm-axis { display: flex; margin-top: 4px; }
 .rm-axis-label { flex: 0 0 230px; width: 230px; }

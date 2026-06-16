@@ -48,9 +48,10 @@ let state = {
   roadmapPlan: { cycles: 3, items: {} },
 };
 
-// Roadmap Gantt limits.
+// Roadmap Gantt limits. Bars and cycle dividers live on a 0..1 timeline.
 const ROADMAP_CYCLES_MAX = 8;
-const ROADMAP_SNAP = 0.25;     // bars snap to quarter-cycle steps
+const ROADMAP_SNAP = 0.01;        // fine snap (1% of the timeline)
+const ROADMAP_CYCLE_MIN = 0.05;   // a cycle can't shrink below 5% of the timeline
 
 // Max key takeaways a building block can carry to the next step.
 const TAKEAWAYS_PER_BLOCK = 10;
@@ -694,25 +695,49 @@ function updateRoadmapSummary() {
 }
 
 // ─── Roadmap Gantt builder ───────────────────────────────────────
-// The selected items become rows; each gets a {start, span} (in cycle units)
-// the user drags to place/resize. Cycle count is adjustable.
+// Bars live on a continuous 0..1 timeline: item = {start, end} as fractions.
+// Cycles are variable-width partitions (weights summing to 1) whose dividers
+// the user can drag. Rows can be reordered by dragging their handle.
 
-// Selected items in display order (block-grouped, same as the picker).
+// Selected items, indexed by id, in their natural (block) order.
 function roadmapItems() {
   return roadmapCandidates().filter(d => state.roadmapSelected.has(d.id));
 }
 
-// Make sure every selected item has a plan entry; drop entries for dropped items.
+// Selected items in the user's chosen row order.
+function orderedRoadmapItems() {
+  const byId = new Map(roadmapItems().map(d => [d.id, d]));
+  return state.roadmapPlan.order.map(id => byId.get(id)).filter(Boolean);
+}
+
+// Normalise the plan: weights match the cycle count, order/items track the
+// current selection, and any legacy {start,span} cycle-unit shape is migrated.
 function ensureRoadmapPlan() {
-  const items = roadmapItems();
-  const ids = new Set(items.map(d => d.id));
   const plan = state.roadmapPlan;
-  Object.keys(plan.items).forEach(id => { if (!ids.has(+id)) delete plan.items[id]; });
+  const items = roadmapItems();
+  const ids = items.map(d => d.id);
+  const idset = new Set(ids);
+
+  if (!Array.isArray(plan.weights) || plan.weights.length !== plan.cycles) {
+    plan.weights = Array(plan.cycles).fill(1 / plan.cycles);
+  }
+  if (!Array.isArray(plan.order)) plan.order = [];
+  plan.order = plan.order.filter(id => idset.has(id));
+  ids.forEach(id => { if (!plan.order.includes(id)) plan.order.push(id); });
+
+  plan.items = plan.items || {};
+  Object.keys(plan.items).forEach(id => { if (!idset.has(+id)) delete plan.items[id]; });
   items.forEach((d, i) => {
-    if (!plan.items[d.id]) {
-      // sensible default: stagger starts across the timeline, 1-cycle span
-      const start = Math.min(plan.cycles - 1, (i % plan.cycles));
-      plan.items[d.id] = { start, span: 1 };
+    let it = plan.items[d.id];
+    if (it && it.span != null) {                 // legacy cycle-unit shape → fractions
+      const cyc = Math.max(1, plan.cycles);
+      it = { start: it.start / cyc, end: (it.start + it.span) / cyc };
+      plan.items[d.id] = it;
+    }
+    if (!it) {                                    // default: stagger one cycle-width across the timeline
+      const w = 1 / Math.max(1, plan.cycles);
+      const s = Math.min(1 - w, (i % plan.cycles) * w);
+      plan.items[d.id] = { start: s, end: s + w };
     }
   });
 }
@@ -731,23 +756,21 @@ function backToRoadmapSelect() {
   renderRoadmap();
 }
 
+// Changing the cycle count resets the partition to equal widths; bars keep
+// their place on the 0..1 timeline.
 function setRoadmapCycles(delta) {
   const plan = state.roadmapPlan;
   const next = Math.min(ROADMAP_CYCLES_MAX, Math.max(1, plan.cycles + delta));
   if (next === plan.cycles) return;
   plan.cycles = next;
-  // keep bars inside the new range
-  Object.values(plan.items).forEach(it => {
-    it.span = Math.min(it.span, next);
-    it.start = Math.min(it.start, next - it.span);
-  });
+  plan.weights = Array(next).fill(1 / next);
   saveProjectData();
   renderRoadmap();
 }
 
 function renderRoadmapGantt(candidates) {
   ensureRoadmapPlan();
-  const items = roadmapItems();
+  const items = orderedRoadmapItems();
   const plan = state.roadmapPlan;
   const actionRow = document.getElementById('actionRow');
   const panel = document.getElementById('mainPanel');
@@ -755,34 +778,40 @@ function renderRoadmapGantt(candidates) {
   actionRow.innerHTML = `
     <button class="btn-ghost" onclick="backToRoadmapSelect()">← Edit selection</button>
     <button class="btn-primary" onclick="confirmRoadmap()">Confirm roadmap → Deck</button>
-    <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} · ${plan.cycles} cycles · drag bars to place &amp; resize</span>`;
+    <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} · ${plan.cycles} cycles · drag bars to move/resize, ⠿ to reorder, dividers to rebalance</span>`;
   actionRow.style.display = 'flex';
 
-  // Legend: one swatch per block present.
   const legendBlocks = BLOCKS.filter(b => items.some(d => d.block === b));
   const legend = legendBlocks.map(b => {
     const c = blockColor(b);
     return `<div class="rm-leg-item"><span class="rm-leg-sw" style="background:${c.fill}"></span>${escapeHtml(b.replace(/^\d+\.\s*/, ''))}</div>`;
   }).join('');
 
-  const cyclePct = 100 / plan.cycles;
-  const gridLines = Array.from({ length: plan.cycles - 1 }, (_, i) =>
-    `<div class="rm-grid-line" style="left:${cyclePct * (i + 1)}%"></div>`).join('');
-  const cycleLabels = Array.from({ length: plan.cycles }, (_, i) =>
-    `<div class="rm-cycle" style="width:${cyclePct}%">Cycle ${i + 1}</div>`).join('');
+  // Cumulative boundaries from weights (sum = 1).
+  const bounds = [];
+  let acc = 0;
+  plan.weights.forEach(w => { acc += w; bounds.push(acc); });   // bounds[i] = right edge of cycle i
+
+  const dividers = plan.weights.slice(0, -1).map((_, i) =>
+    `<div class="rm-divider" data-div="${i}" style="left:${bounds[i] * 100}%"></div>`).join('');
+  const cycleLabels = plan.weights.map((w, i) =>
+    `<div class="rm-cycle" style="width:${w * 100}%">Cycle ${i + 1}</div>`).join('');
 
   const rows = items.map(d => {
     const it = plan.items[d.id];
     const c = blockColor(d.block);
     const label = (d.initiative || d.takeaway || '').trim();
     return `
-      <div class="rm-row">
-        <div class="rm-row-label" title="${escapeHtml(label)}">${escapeHtml(label)}</div>
+      <div class="rm-row" data-id="${d.id}">
+        <div class="rm-row-label" title="${escapeHtml(label)}">
+          <span class="rm-row-handle" data-handle="1">⠿</span>
+          <span class="rm-row-text">${escapeHtml(label)}</span>
+        </div>
         <div class="rm-track">
-          ${gridLines}
           <div class="rm-bar" data-id="${d.id}"
-               style="left:${it.start * cyclePct}%;width:${it.span * cyclePct}%;background:${c.fill}">
-            <span class="rm-bar-grip" data-grip="resize"></span>
+               style="left:${it.start * 100}%;width:${(it.end - it.start) * 100}%;background:${c.fill}">
+            <span class="rm-bar-grip left" data-grip="left"></span>
+            <span class="rm-bar-grip right" data-grip="right"></span>
           </div>
         </div>
       </div>`;
@@ -805,7 +834,10 @@ function renderRoadmapGantt(candidates) {
       <div class="rm-main">
         <div class="rm-chart">
           <div class="rm-yaxis">Programs / decisions to set up</div>
-          <div class="rm-rows" id="rmRows">${rows}</div>
+          <div class="rm-plot">
+            <div class="rm-rows" id="rmRows">${rows}</div>
+            <div class="rm-dividers" id="rmDividers">${dividers}</div>
+          </div>
           <div class="rm-axis"><div class="rm-axis-label"></div><div class="rm-cycles">${cycleLabels}</div></div>
         </div>
         <div class="rm-legend">
@@ -818,59 +850,157 @@ function renderRoadmapGantt(candidates) {
   attachGanttDrag();
 }
 
-// Pointer drag: bar body = move, right grip = resize. Snaps to ROADMAP_SNAP.
+const _rmSnap = v => Math.round(v / ROADMAP_SNAP) * ROADMAP_SNAP;
+const _clamp01 = v => Math.max(0, Math.min(1, v));
+
+// Three pointer-drag interactions, all delegated off persistent containers so a
+// mid-drag re-render (row reorder) keeps working: bar move/resize, cycle divider
+// rebalance, and row reorder.
 function attachGanttDrag() {
   const rows = document.getElementById('rmRows');
+  const divLayer = document.getElementById('rmDividers');
   if (!rows) return;
-  let drag = null;   // {id, mode, trackW, startX, origStart, origSpan, bar}
+  let drag = null;
 
+  // ── Bars: move, or resize from either edge ──
   rows.addEventListener('pointerdown', e => {
+    const handle = e.target.closest('.rm-row-handle');
+    if (handle) { startRowDrag(e, handle); return; }
     const bar = e.target.closest('.rm-bar');
     if (!bar) return;
-    const track = bar.parentElement;
-    const id = +bar.dataset.id;
-    const it = state.roadmapPlan.items[id];
+    const it = state.roadmapPlan.items[+bar.dataset.id];
     drag = {
-      id, bar,
-      mode: e.target.dataset.grip === 'resize' ? 'resize' : 'move',
-      trackW: track.getBoundingClientRect().width,
-      startX: e.clientX,
-      origStart: it.start,
-      origSpan: it.span,
+      kind: 'bar', bar, it,
+      mode: e.target.dataset.grip || 'move',
+      trackW: bar.parentElement.getBoundingClientRect().width,
+      startX: e.clientX, s0: it.start, e0: it.end,
     };
     bar.setPointerCapture(e.pointerId);
     bar.classList.add('dragging');
     e.preventDefault();
   });
 
+  // ── Row reorder via the ⠿ handle ──
+  function startRowDrag(e, handle) {
+    const row = handle.closest('.rm-row');
+    drag = { kind: 'row', id: +row.dataset.id };
+    row.classList.add('dragging');
+    rows.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }
+
   rows.addEventListener('pointermove', e => {
     if (!drag) return;
-    const plan = state.roadmapPlan;
-    const it = plan.items[drag.id];
-    const deltaCycles = (e.clientX - drag.startX) / drag.trackW * plan.cycles;
-    const snap = v => Math.round(v / ROADMAP_SNAP) * ROADMAP_SNAP;
-    if (drag.mode === 'move') {
-      let s = snap(drag.origStart + deltaCycles);
-      s = Math.max(0, Math.min(plan.cycles - it.span, s));
-      it.start = s;
-    } else {
-      let sp = snap(drag.origSpan + deltaCycles);
-      sp = Math.max(ROADMAP_SNAP, Math.min(plan.cycles - it.start, sp));
-      it.span = sp;
+    if (drag.kind === 'bar') {
+      const d = (e.clientX - drag.startX) / drag.trackW;
+      const it = drag.it;
+      if (drag.mode === 'move') {
+        const span = drag.e0 - drag.s0;
+        let s = _clamp01(_rmSnap(drag.s0 + d));
+        s = Math.min(s, 1 - span);
+        it.start = s; it.end = s + span;
+      } else if (drag.mode === 'left') {
+        it.start = _clamp01(Math.min(_rmSnap(drag.s0 + d), it.end - ROADMAP_SNAP));
+      } else {
+        it.end = _clamp01(Math.max(_rmSnap(drag.e0 + d), it.start + ROADMAP_SNAP));
+      }
+      drag.bar.style.left = it.start * 100 + '%';
+      drag.bar.style.width = (it.end - it.start) * 100 + '%';
+    } else if (drag.kind === 'row') {
+      reorderRowsByY(drag.id, e.clientY);
     }
-    const cyclePct = 100 / plan.cycles;
-    drag.bar.style.left = it.start * cyclePct + '%';
-    drag.bar.style.width = it.span * cyclePct + '%';
   });
 
-  const end = e => {
+  // ── Cycle dividers: rebalance the two adjacent cycles ──
+  if (divLayer) {
+    divLayer.addEventListener('pointerdown', e => {
+      const dv = e.target.closest('.rm-divider');
+      if (!dv) return;
+      const i = +dv.dataset.div;                         // boundary between cycle i and i+1
+      const plan = state.roadmapPlan;
+      const leftEdge = plan.weights.slice(0, i).reduce((a, b) => a + b, 0);
+      drag = {
+        kind: 'divider', dv, i,
+        layerW: divLayer.getBoundingClientRect().width,
+        startX: e.clientX, leftEdge,
+        pairSum: plan.weights[i] + plan.weights[i + 1],
+      };
+      dv.setPointerCapture(e.pointerId);
+      dv.classList.add('dragging');
+      e.preventDefault();
+    });
+    divLayer.addEventListener('pointermove', e => {
+      if (!drag || drag.kind !== 'divider') return;
+      const plan = state.roadmapPlan;
+      const d = (e.clientX - drag.startX) / drag.layerW;
+      const minB = drag.leftEdge + ROADMAP_CYCLE_MIN;
+      const maxB = drag.leftEdge + drag.pairSum - ROADMAP_CYCLE_MIN;
+      const b0 = drag.leftEdge + plan.weights[drag.i];   // original boundary
+      const b = Math.max(minB, Math.min(maxB, _rmSnap(b0 + d)));
+      plan.weights[drag.i] = b - drag.leftEdge;
+      plan.weights[drag.i + 1] = drag.pairSum - plan.weights[drag.i];
+      // Reflow in place (re-rendering would drop the pointer capture).
+      drag.dv.style.left = b * 100 + '%';
+      const labels = document.querySelectorAll('.rm-cycles .rm-cycle');
+      if (labels[drag.i]) labels[drag.i].style.width = plan.weights[drag.i] * 100 + '%';
+      if (labels[drag.i + 1]) labels[drag.i + 1].style.width = plan.weights[drag.i + 1] * 100 + '%';
+    });
+    divLayer.addEventListener('pointerup', endDrag);
+    divLayer.addEventListener('pointercancel', endDrag);
+  }
+
+  rows.addEventListener('pointerup', endDrag);
+  rows.addEventListener('pointercancel', endDrag);
+
+  function endDrag() {
     if (!drag) return;
-    drag.bar.classList.remove('dragging');
+    document.querySelectorAll('.rm-bar.dragging, .rm-row.dragging, .rm-divider.dragging')
+      .forEach(el => el.classList.remove('dragging'));
     drag = null;
     saveProjectData();
-  };
-  rows.addEventListener('pointerup', end);
-  rows.addEventListener('pointercancel', end);
+  }
+}
+
+// Move the dragged row to wherever the pointer sits; re-render rows in place.
+function reorderRowsByY(id, clientY) {
+  const order = state.roadmapPlan.order;
+  const rowEls = [...document.querySelectorAll('#rmRows .rm-row')];
+  let target = rowEls.length - 1;
+  for (let i = 0; i < rowEls.length; i++) {
+    const r = rowEls[i].getBoundingClientRect();
+    if (clientY < r.top + r.height / 2) { target = i; break; }
+  }
+  const cur = order.indexOf(id);
+  if (cur === target || cur === -1) return;
+  order.splice(cur, 1);
+  order.splice(target, 0, id);
+  rebuildRoadmapRows(id);
+}
+
+// Re-render just the rows list (cheap; keeps the delegated listeners on #rmRows).
+function rebuildRoadmapRows(draggingId) {
+  const rows = document.getElementById('rmRows');
+  if (!rows) return;
+  const plan = state.roadmapPlan;
+  rows.innerHTML = orderedRoadmapItems().map(d => {
+    const it = plan.items[d.id];
+    const c = blockColor(d.block);
+    const label = (d.initiative || d.takeaway || '').trim();
+    return `
+      <div class="rm-row ${d.id === draggingId ? 'dragging' : ''}" data-id="${d.id}">
+        <div class="rm-row-label" title="${escapeHtml(label)}">
+          <span class="rm-row-handle" data-handle="1">⠿</span>
+          <span class="rm-row-text">${escapeHtml(label)}</span>
+        </div>
+        <div class="rm-track">
+          <div class="rm-bar" data-id="${d.id}"
+               style="left:${it.start * 100}%;width:${(it.end - it.start) * 100}%;background:${c.fill}">
+            <span class="rm-bar-grip left" data-grip="left"></span>
+            <span class="rm-bar-grip right" data-grip="right"></span>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
 }
 
 function confirmRoadmap() {
