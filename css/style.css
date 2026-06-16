@@ -1245,3 +1245,63 @@ body {
 
 /* ── REVIEW SUBHINT ── */
 .review-subhint { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+
+/* ── ROADMAP GANTT BUILDER ── */
+.btn-ghost {
+  background: transparent; border: 1px solid var(--border); color: var(--muted);
+  padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; font-weight: 500;
+}
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+.rm-gantt { padding: 20px 26px 60px; max-width: 1180px; margin: 0 auto; }
+.rm-gantt-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+.rm-gantt-title { font-family: 'Space Grotesk', sans-serif; font-size: 24px; font-weight: 600; color: var(--text); margin: 0; }
+.rm-gantt-title span { font-weight: 400; color: var(--muted); }
+.rm-gantt-sub { font-size: 13px; color: var(--accent); font-weight: 600; margin: 4px 0 0; }
+
+.rm-cycle-ctrl { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.rm-cycle-ctrl button {
+  width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-size: 16px; cursor: pointer; line-height: 1;
+}
+.rm-cycle-ctrl button:disabled { opacity: 0.35; cursor: not-allowed; }
+.rm-cycle-ctrl span { min-width: 16px; text-align: center; font-size: 14px; color: var(--text); }
+
+.rm-main { display: flex; gap: 22px; align-items: flex-start; }
+.rm-chart { flex: 1 1 auto; min-width: 0; position: relative; padding-left: 22px; }
+.rm-yaxis {
+  position: absolute; left: -6px; top: 50%; transform: rotate(-180deg); writing-mode: vertical-rl;
+  font-size: 11px; color: var(--accent); font-weight: 600; white-space: nowrap;
+}
+
+.rm-rows { display: flex; flex-direction: column; }
+.rm-row { display: flex; align-items: center; height: 26px; }
+.rm-row-label {
+  flex: 0 0 230px; width: 230px; font-size: 11px; color: var(--text); text-align: right;
+  padding-right: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rm-track { position: relative; flex: 1 1 auto; height: 100%; }
+.rm-grid-line { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.rm-bar {
+  position: absolute; top: 5px; height: 16px; border-radius: 4px; cursor: grab;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.12); touch-action: none; user-select: none;
+}
+.rm-bar.dragging { cursor: grabbing; box-shadow: 0 3px 10px rgba(0,0,0,0.22); z-index: 3; }
+.rm-bar-grip { position: absolute; right: 0; top: 0; width: 9px; height: 100%; cursor: ew-resize; border-radius: 0 4px 4px 0; }
+.rm-bar-grip:hover { background: rgba(0,0,0,0.12); }
+
+.rm-axis { display: flex; margin-top: 4px; }
+.rm-axis-label { flex: 0 0 230px; width: 230px; }
+.rm-cycles { flex: 1 1 auto; display: flex; }
+.rm-cycle {
+  background: var(--accent); color: #fff; text-align: center; font-size: 12px; font-weight: 600;
+  padding: 7px 0; border-right: 1px solid rgba(255,255,255,0.35);
+}
+.rm-cycle:last-child { border-right: none; }
+
+.rm-legend {
+  flex: 0 0 180px; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface);
+}
+.rm-legend-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+.rm-leg-item { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text); padding: 4px 0; }
+.rm-leg-sw { width: 26px; height: 14px; border-radius: 3px; flex: none; }

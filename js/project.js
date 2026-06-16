@@ -43,7 +43,14 @@ let state = {
   roadmapSelected: new Set(),
   roadmapConfirmed: false,
   roadmapFilter: 'all',        // building-block filter in the Roadmap selection
+  roadmapPhase: 'select',      // 'select' (pick items) | 'build' (Gantt editor)
+  // Gantt plan: cycles = number of columns; items[id] = {start, span} in cycle units.
+  roadmapPlan: { cycles: 3, items: {} },
 };
+
+// Roadmap Gantt limits.
+const ROADMAP_CYCLES_MAX = 8;
+const ROADMAP_SNAP = 0.25;     // bars snap to quarter-cycle steps
 
 // Max key takeaways a building block can carry to the next step.
 const TAKEAWAYS_PER_BLOCK = 10;
@@ -113,6 +120,11 @@ async function openProject(projectId) {
     const rm = d.roadmap || {};
     state.roadmapSelected = new Set(rm.selected || []);
     state.roadmapConfirmed = !!rm.confirmed;
+    state.roadmapPhase = rm.phase === 'build' ? 'build' : 'select';
+    state.roadmapPlan = {
+      cycles: Math.min(ROADMAP_CYCLES_MAX, Math.max(1, (rm.plan && rm.plan.cycles) || 3)),
+      items: (rm.plan && rm.plan.items) || {},
+    };
     migrateDecisions();              // upgrade any legacy decision shapes
     recomputeRemoved();              // derive removed set from decisions (consistent)
     state.fileName = d.file_name || '';
@@ -156,6 +168,8 @@ function saveProjectData(immediate) {
     roadmap: {
       selected: [...state.roadmapSelected],
       confirmed: state.roadmapConfirmed,
+      phase: state.roadmapPhase,
+      plan: state.roadmapPlan,
     },
     status: PROJECT.status,
   };
@@ -501,7 +515,12 @@ function confirmTakeaways() {
 // Stable per-block colour from its index — spread hues, no palette to maintain.
 function blockColor(block) {
   const hue = (Math.max(0, BLOCKS.indexOf(block)) * 47) % 360;
-  return { bar: `hsl(${hue} 65% 48%)`, bg: `hsl(${hue} 70% 95%)`, text: `hsl(${hue} 55% 32%)` };
+  return {
+    bar:  `hsl(${hue} 65% 48%)`,
+    bg:   `hsl(${hue} 70% 95%)`,
+    text: `hsl(${hue} 55% 32%)`,
+    fill: `hsl(${hue} 58% 74%)`,   // soft pastel for Gantt bars
+  };
 }
 
 // Selected key takeaways (still kept), in block order, ready to choose from.
@@ -538,9 +557,11 @@ function renderRoadmap() {
   const valid = new Set(candidates.map(d => d.id));
   [...state.roadmapSelected].forEach(id => { if (!valid.has(id)) state.roadmapSelected.delete(id); });
 
+  if (state.roadmapPhase === 'build') { renderRoadmapGantt(candidates); return; }
+
   actionRow.innerHTML = `
-    <button class="btn-primary" id="rmConfirmBtn" onclick="confirmRoadmap()">
-      Confirm roadmap → Deck
+    <button class="btn-primary" id="rmConfirmBtn" onclick="createRoadmap()">
+      Create roadmap →
     </button>
     <span class="action-hint" id="rmActionHint"></span>`;
   actionRow.style.display = 'flex';
@@ -670,6 +691,186 @@ function updateRoadmapSummary() {
           ? `✓ Confirmed — ${total} item${total === 1 ? '' : 's'} in the roadmap.`
           : `${total} item${total === 1 ? '' : 's'} ready to confirm.`);
   }
+}
+
+// ─── Roadmap Gantt builder ───────────────────────────────────────
+// The selected items become rows; each gets a {start, span} (in cycle units)
+// the user drags to place/resize. Cycle count is adjustable.
+
+// Selected items in display order (block-grouped, same as the picker).
+function roadmapItems() {
+  return roadmapCandidates().filter(d => state.roadmapSelected.has(d.id));
+}
+
+// Make sure every selected item has a plan entry; drop entries for dropped items.
+function ensureRoadmapPlan() {
+  const items = roadmapItems();
+  const ids = new Set(items.map(d => d.id));
+  const plan = state.roadmapPlan;
+  Object.keys(plan.items).forEach(id => { if (!ids.has(+id)) delete plan.items[id]; });
+  items.forEach((d, i) => {
+    if (!plan.items[d.id]) {
+      // sensible default: stagger starts across the timeline, 1-cycle span
+      const start = Math.min(plan.cycles - 1, (i % plan.cycles));
+      plan.items[d.id] = { start, span: 1 };
+    }
+  });
+}
+
+function createRoadmap() {
+  if (state.roadmapSelected.size === 0) return;
+  ensureRoadmapPlan();
+  state.roadmapPhase = 'build';
+  saveProjectData(true);
+  renderRoadmap();
+}
+
+function backToRoadmapSelect() {
+  state.roadmapPhase = 'select';
+  saveProjectData();
+  renderRoadmap();
+}
+
+function setRoadmapCycles(delta) {
+  const plan = state.roadmapPlan;
+  const next = Math.min(ROADMAP_CYCLES_MAX, Math.max(1, plan.cycles + delta));
+  if (next === plan.cycles) return;
+  plan.cycles = next;
+  // keep bars inside the new range
+  Object.values(plan.items).forEach(it => {
+    it.span = Math.min(it.span, next);
+    it.start = Math.min(it.start, next - it.span);
+  });
+  saveProjectData();
+  renderRoadmap();
+}
+
+function renderRoadmapGantt(candidates) {
+  ensureRoadmapPlan();
+  const items = roadmapItems();
+  const plan = state.roadmapPlan;
+  const actionRow = document.getElementById('actionRow');
+  const panel = document.getElementById('mainPanel');
+
+  actionRow.innerHTML = `
+    <button class="btn-ghost" onclick="backToRoadmapSelect()">← Edit selection</button>
+    <button class="btn-primary" onclick="confirmRoadmap()">Confirm roadmap → Deck</button>
+    <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} · ${plan.cycles} cycles · drag bars to place &amp; resize</span>`;
+  actionRow.style.display = 'flex';
+
+  // Legend: one swatch per block present.
+  const legendBlocks = BLOCKS.filter(b => items.some(d => d.block === b));
+  const legend = legendBlocks.map(b => {
+    const c = blockColor(b);
+    return `<div class="rm-leg-item"><span class="rm-leg-sw" style="background:${c.fill}"></span>${escapeHtml(b.replace(/^\d+\.\s*/, ''))}</div>`;
+  }).join('');
+
+  const cyclePct = 100 / plan.cycles;
+  const gridLines = Array.from({ length: plan.cycles - 1 }, (_, i) =>
+    `<div class="rm-grid-line" style="left:${cyclePct * (i + 1)}%"></div>`).join('');
+  const cycleLabels = Array.from({ length: plan.cycles }, (_, i) =>
+    `<div class="rm-cycle" style="width:${cyclePct}%">Cycle ${i + 1}</div>`).join('');
+
+  const rows = items.map(d => {
+    const it = plan.items[d.id];
+    const c = blockColor(d.block);
+    const label = (d.initiative || d.takeaway || '').trim();
+    return `
+      <div class="rm-row">
+        <div class="rm-row-label" title="${escapeHtml(label)}">${escapeHtml(label)}</div>
+        <div class="rm-track">
+          ${gridLines}
+          <div class="rm-bar" data-id="${d.id}"
+               style="left:${it.start * cyclePct}%;width:${it.span * cyclePct}%;background:${c.fill}">
+            <span class="rm-bar-grip" data-grip="resize"></span>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  panel.innerHTML = `
+    <div class="rm-gantt">
+      <div class="rm-gantt-head">
+        <div>
+          <h2 class="rm-gantt-title">Initiatives Prioritization <span>| Gantt view</span></h2>
+          <p class="rm-gantt-sub">Recommended programs over time</p>
+        </div>
+        <div class="rm-cycle-ctrl">
+          Cycles
+          <button onclick="setRoadmapCycles(-1)" ${plan.cycles <= 1 ? 'disabled' : ''}>−</button>
+          <span>${plan.cycles}</span>
+          <button onclick="setRoadmapCycles(1)" ${plan.cycles >= ROADMAP_CYCLES_MAX ? 'disabled' : ''}>+</button>
+        </div>
+      </div>
+      <div class="rm-main">
+        <div class="rm-chart">
+          <div class="rm-yaxis">Programs / decisions to set up</div>
+          <div class="rm-rows" id="rmRows">${rows}</div>
+          <div class="rm-axis"><div class="rm-axis-label"></div><div class="rm-cycles">${cycleLabels}</div></div>
+        </div>
+        <div class="rm-legend">
+          <div class="rm-legend-title">Building Blocks</div>
+          ${legend}
+        </div>
+      </div>
+    </div>`;
+
+  attachGanttDrag();
+}
+
+// Pointer drag: bar body = move, right grip = resize. Snaps to ROADMAP_SNAP.
+function attachGanttDrag() {
+  const rows = document.getElementById('rmRows');
+  if (!rows) return;
+  let drag = null;   // {id, mode, trackW, startX, origStart, origSpan, bar}
+
+  rows.addEventListener('pointerdown', e => {
+    const bar = e.target.closest('.rm-bar');
+    if (!bar) return;
+    const track = bar.parentElement;
+    const id = +bar.dataset.id;
+    const it = state.roadmapPlan.items[id];
+    drag = {
+      id, bar,
+      mode: e.target.dataset.grip === 'resize' ? 'resize' : 'move',
+      trackW: track.getBoundingClientRect().width,
+      startX: e.clientX,
+      origStart: it.start,
+      origSpan: it.span,
+    };
+    bar.setPointerCapture(e.pointerId);
+    bar.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  rows.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const plan = state.roadmapPlan;
+    const it = plan.items[drag.id];
+    const deltaCycles = (e.clientX - drag.startX) / drag.trackW * plan.cycles;
+    const snap = v => Math.round(v / ROADMAP_SNAP) * ROADMAP_SNAP;
+    if (drag.mode === 'move') {
+      let s = snap(drag.origStart + deltaCycles);
+      s = Math.max(0, Math.min(plan.cycles - it.span, s));
+      it.start = s;
+    } else {
+      let sp = snap(drag.origSpan + deltaCycles);
+      sp = Math.max(ROADMAP_SNAP, Math.min(plan.cycles - it.start, sp));
+      it.span = sp;
+    }
+    const cyclePct = 100 / plan.cycles;
+    drag.bar.style.left = it.start * cyclePct + '%';
+    drag.bar.style.width = it.span * cyclePct + '%';
+  });
+
+  const end = e => {
+    if (!drag) return;
+    drag.bar.classList.remove('dragging');
+    drag = null;
+    saveProjectData();
+  };
+  rows.addEventListener('pointerup', end);
+  rows.addEventListener('pointercancel', end);
 }
 
 function confirmRoadmap() {
