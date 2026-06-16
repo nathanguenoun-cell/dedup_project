@@ -249,6 +249,7 @@ ROADMAP_SLIDE = 23
 RM_PLOT_L, RM_PLOT_W = 2.66, 6.23      # timeline plot area
 RM_LABEL_L, RM_LABEL_W = 0.26, 2.30    # left initiative-label column
 RM_ROWS_T, RM_ROWS_H = 1.03, 3.02      # rows band
+RM_MONTH_T = 0.87                      # month header row (above the rows)
 RM_BAR_H = 0.085
 RM_CYC_T, RM_CYC_H = 4.17, 0.20        # bottom cycle bars
 RM_CYC_BG  = ["E8EDF8", "EDF0FA", "F0F2FC"]   # cycle column tints
@@ -331,6 +332,18 @@ def render_roadmap_slide(prs, roadmap):
         _add_text(slide, x, RM_CYC_T + 0.012, w, RM_CYC_H, f"Cycle {k + 1}", 7, "FFFFFF",
                   bold=True, align=PP_ALIGN.CENTER)
         cum += weights[k]
+
+    # Month axis: equal columns labelled from the app, with separator lines.
+    month_labels = roadmap.get('monthLabels') or []
+    months = max(1, int(roadmap.get('months') or len(month_labels) or 1))
+    mw = RM_PLOT_W / months
+    for i in range(months):
+        mx = RM_PLOT_L + i * mw
+        name = month_labels[i] if i < len(month_labels) else ""
+        _add_text(slide, mx, RM_MONTH_T, mw, 0.16, name, 6.5, "42718A",
+                  bold=True, align=PP_ALIGN.CENTER)
+        if i > 0:
+            _add_rect(slide, mx - 0.004, RM_ROWS_T, 0.008, RM_ROWS_H, "D9D9D9")
 
     # Rows: numbered label + a block-coloured bar positioned on the 0..1 timeline.
     n = min(len(items), 25)

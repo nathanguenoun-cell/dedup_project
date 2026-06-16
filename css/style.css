@@ -1266,6 +1266,11 @@ body {
 }
 .rm-cycle-ctrl button:disabled { opacity: 0.35; cursor: not-allowed; }
 .rm-cycle-ctrl span { min-width: 16px; text-align: center; font-size: 14px; color: var(--text); }
+.rm-ctrls { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.rm-month-input {
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 7px;
+  font-size: 12px; font-family: inherit; color: var(--text);
+}
 
 .rm-main { display: flex; gap: 22px; align-items: flex-start; }
 .rm-chart { flex: 1 1 auto; min-width: 0; position: relative; padding-left: 22px; }
@@ -1276,7 +1281,7 @@ body {
 
 /* Plot wraps the rows and the full-height divider overlay so they share x. */
 .rm-plot { position: relative; }
-.rm-rows { display: flex; flex-direction: column; }
+.rm-rows { display: flex; flex-direction: column; position: relative; z-index: 1; }
 .rm-row { display: flex; align-items: center; height: 26px; }
 .rm-row.dragging { opacity: 0.5; }
 .rm-row-label {
@@ -1303,7 +1308,7 @@ body {
 .rm-bar-grip:hover { background: rgba(0,0,0,0.14); }
 
 /* Cycle dividers: full-height draggable lines over the track area. */
-.rm-dividers { position: absolute; left: 230px; right: 0; top: 0; bottom: 0; pointer-events: none; }
+.rm-dividers { position: absolute; left: 230px; right: 0; top: 0; bottom: 0; pointer-events: none; z-index: 2; }
 .rm-divider {
   position: absolute; top: 0; bottom: 0; width: 9px; margin-left: -4px;
   cursor: ew-resize; pointer-events: auto; touch-action: none;
@@ -1312,6 +1317,17 @@ body {
   content: ''; position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; background: var(--border);
 }
 .rm-divider:hover::before, .rm-divider.dragging::before { background: var(--accent); width: 2px; }
+
+/* Month axis header (above the rows) + separator lines (behind the bars). */
+.rm-monthrow { display: flex; margin-bottom: 2px; }
+.rm-months { flex: 1 1 auto; display: flex; }
+.rm-month {
+  text-align: center; font-size: 10px; font-weight: 600; color: var(--muted);
+  border-left: 1px solid var(--border); padding: 2px 0;
+}
+.rm-month:first-child { border-left: none; }
+.rm-monthlines { position: absolute; left: 230px; right: 0; top: 0; bottom: 0; pointer-events: none; z-index: 0; }
+.rm-monthline { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); opacity: 0.6; }
 
 .rm-axis { display: flex; margin-top: 4px; }
 .rm-axis-label { flex: 0 0 230px; width: 230px; }

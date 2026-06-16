@@ -45,13 +45,17 @@ let state = {
   roadmapFilter: 'all',        // building-block filter in the Roadmap selection
   roadmapPhase: 'select',      // 'select' (pick items) | 'build' (Gantt editor)
   // Gantt plan: cycles = number of columns; items[id] = {start, span} in cycle units.
-  roadmapPlan: { cycles: 3, items: {} },
+  roadmapPlan: { cycles: 3, months: 9, startMonth: null, items: {} },
 };
 
 // Roadmap Gantt limits. Bars and cycle dividers live on a 0..1 timeline.
 const ROADMAP_CYCLES_MAX = 8;
 const ROADMAP_SNAP = 0.01;        // fine snap (1% of the timeline)
 const ROADMAP_CYCLE_MIN = 0.05;   // a cycle can't shrink below 5% of the timeline
+const ROADMAP_MONTHS_DEFAULT = 9;
+const ROADMAP_MONTHS_MAX = 24;
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Max key takeaways a building block can carry to the next step.
 const TAKEAWAYS_PER_BLOCK = 10;
@@ -129,6 +133,8 @@ async function openProject(projectId) {
       order: Array.isArray(p.order) ? p.order : [],
       items: p.items || {},
       labels: p.labels || {},
+      months: Math.min(ROADMAP_MONTHS_MAX, Math.max(1, p.months || ROADMAP_MONTHS_DEFAULT)),
+      startMonth: p.startMonth || null,
     };
     migrateDecisions();              // upgrade any legacy decision shapes
     recomputeRemoved();              // derive removed set from decisions (consistent)
@@ -730,6 +736,8 @@ function ensureRoadmapPlan() {
   if (!Array.isArray(plan.weights) || plan.weights.length !== plan.cycles) {
     plan.weights = Array(plan.cycles).fill(1 / plan.cycles);
   }
+  if (!plan.months) plan.months = ROADMAP_MONTHS_DEFAULT;
+  if (plan.startMonth === undefined) plan.startMonth = null;
   if (!Array.isArray(plan.order)) plan.order = [];
   plan.order = plan.order.filter(id => idset.has(id));
   ids.forEach(id => { if (!plan.order.includes(id)) plan.order.push(id); });
@@ -779,6 +787,33 @@ function setRoadmapCycles(delta) {
   renderRoadmap();
 }
 
+// Month axis: `months` equal columns labelled from `startMonth` ("YYYY-MM").
+// Editing the first month shifts every label; unset → starts at the current month.
+function roadmapMonthStart(plan) {
+  if (plan.startMonth && /^\d{4}-\d{2}$/.test(plan.startMonth)) {
+    return { y: +plan.startMonth.slice(0, 4), m: +plan.startMonth.slice(5, 7) - 1 };
+  }
+  const d = new Date();
+  return { y: d.getFullYear(), m: d.getMonth() };
+}
+function roadmapMonthLabels(plan) {
+  const { m } = roadmapMonthStart(plan);
+  return Array.from({ length: plan.months }, (_, i) => MONTH_NAMES[(m + i) % 12]);
+}
+function setRoadmapMonths(delta) {
+  const plan = state.roadmapPlan;
+  const next = Math.min(ROADMAP_MONTHS_MAX, Math.max(1, plan.months + delta));
+  if (next === plan.months) return;
+  plan.months = next;
+  saveProjectData();
+  renderRoadmap();
+}
+function setRoadmapStartMonth(value) {
+  state.roadmapPlan.startMonth = value || null;
+  saveProjectData();
+  renderRoadmap();
+}
+
 function renderRoadmapGantt(candidates) {
   ensureRoadmapPlan();
   const items = orderedRoadmapItems();
@@ -808,6 +843,15 @@ function renderRoadmapGantt(candidates) {
   const cycleLabels = plan.weights.map((w, i) =>
     `<div class="rm-cycle" style="width:${w * 100}%">Cycle ${i + 1}</div>`).join('');
 
+  // Month axis: equal columns + separator lines across the plot.
+  const months = roadmapMonthLabels(plan);
+  const monthW = 100 / plan.months;
+  const monthHeader = months.map(name =>
+    `<div class="rm-month" style="width:${monthW}%">${name}</div>`).join('');
+  const monthLines = months.slice(1).map((_, i) =>
+    `<div class="rm-monthline" style="left:${monthW * (i + 1)}%"></div>`).join('');
+  const startVal = (() => { const s = roadmapMonthStart(plan); return `${s.y}-${String(s.m + 1).padStart(2, '0')}`; })();
+
   const rows = items.map(d => rmRowHtml(d)).join('');
 
   panel.innerHTML = `
@@ -817,17 +861,32 @@ function renderRoadmapGantt(candidates) {
           <h2 class="rm-gantt-title">Initiatives Prioritization <span>| Gantt view</span></h2>
           <p class="rm-gantt-sub">Recommended programs over time</p>
         </div>
-        <div class="rm-cycle-ctrl">
-          Cycles
-          <button onclick="setRoadmapCycles(-1)" ${plan.cycles <= 1 ? 'disabled' : ''}>−</button>
-          <span>${plan.cycles}</span>
-          <button onclick="setRoadmapCycles(1)" ${plan.cycles >= ROADMAP_CYCLES_MAX ? 'disabled' : ''}>+</button>
+        <div class="rm-ctrls">
+          <div class="rm-cycle-ctrl">
+            Start
+            <input type="month" class="rm-month-input" value="${startVal}"
+                   onchange="setRoadmapStartMonth(this.value)">
+          </div>
+          <div class="rm-cycle-ctrl">
+            Months
+            <button onclick="setRoadmapMonths(-1)" ${plan.months <= 1 ? 'disabled' : ''}>−</button>
+            <span>${plan.months}</span>
+            <button onclick="setRoadmapMonths(1)" ${plan.months >= ROADMAP_MONTHS_MAX ? 'disabled' : ''}>+</button>
+          </div>
+          <div class="rm-cycle-ctrl">
+            Cycles
+            <button onclick="setRoadmapCycles(-1)" ${plan.cycles <= 1 ? 'disabled' : ''}>−</button>
+            <span>${plan.cycles}</span>
+            <button onclick="setRoadmapCycles(1)" ${plan.cycles >= ROADMAP_CYCLES_MAX ? 'disabled' : ''}>+</button>
+          </div>
         </div>
       </div>
       <div class="rm-main">
         <div class="rm-chart">
           <div class="rm-yaxis">Programs / decisions to set up</div>
+          <div class="rm-monthrow"><div class="rm-axis-label"></div><div class="rm-months">${monthHeader}</div></div>
           <div class="rm-plot">
+            <div class="rm-monthlines">${monthLines}</div>
             <div class="rm-rows" id="rmRows">${rows}</div>
             <div class="rm-dividers" id="rmDividers">${dividers}</div>
           </div>
@@ -1108,7 +1167,10 @@ function buildRoadmapPayload() {
     return { label: rmLabel(d), block: d.block, start: it.start, end: it.end };
   });
   if (!items.length) return null;
-  return { cycles: plan.cycles, weights: plan.weights, items };
+  return {
+    cycles: plan.cycles, weights: plan.weights, items,
+    months: plan.months, monthLabels: roadmapMonthLabels(plan),
+  };
 }
 
 async function generateDeck() {
