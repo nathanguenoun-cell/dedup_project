@@ -42,6 +42,7 @@ let state = {
   // Roadmap module: subset of the selected key takeaways picked for the roadmap.
   roadmapSelected: new Set(),
   roadmapConfirmed: false,
+  roadmapFilter: 'all',        // building-block filter in the Roadmap selection
 };
 
 // Max key takeaways a building block can carry to the next step.
@@ -497,6 +498,12 @@ function confirmTakeaways() {
 // picks up to ROADMAP_MAX of them to carry into the roadmap. Highlighted
 // takeaways are marked but selection is independent.
 
+// Stable per-block colour from its index — spread hues, no palette to maintain.
+function blockColor(block) {
+  const hue = (Math.max(0, BLOCKS.indexOf(block)) * 47) % 360;
+  return { bar: `hsl(${hue} 65% 48%)`, bg: `hsl(${hue} 70% 95%)`, text: `hsl(${hue} 55% 32%)` };
+}
+
 // Selected key takeaways (still kept), in block order, ready to choose from.
 function roadmapCandidates() {
   const out = [];
@@ -548,22 +555,56 @@ function renderRoadmap() {
         </div>
         <div class="tk-summary" id="rmSummary"></div>
       </div>
+      <div class="pill-nav" id="rmFilter">${rmFilterHtml(candidates)}</div>
       <div class="tk-panel" id="rmPanel">${rmPanelHtml(candidates)}</div>
     </div>`;
   updateRoadmapSummary();
 }
 
+// Filter pills: All + one per block present in the candidates, colour-coded.
+let _rmFilterKeys = [];
+function rmFilterHtml(candidates) {
+  const blocks = BLOCKS.filter(b => candidates.some(d => d.block === b));
+  _rmFilterKeys = ['all', ...blocks];
+  return _rmFilterKeys.map((key, idx) => {
+    const active = state.roadmapFilter === key;
+    if (key === 'all') {
+      return `<div class="pill ${active ? 'active' : ''}" onclick="setRoadmapFilter(${idx})">
+        All Blocks <span class="pill-count">${candidates.length}</span></div>`;
+    }
+    const c = blockColor(key);
+    const n = candidates.filter(d => d.block === key).length;
+    const style = active
+      ? `background:${c.bar};border-color:${c.bar};color:#fff`
+      : `border-left:4px solid ${c.bar};color:${c.text}`;
+    return `<div class="pill ${active ? 'active' : ''}" style="${style}" onclick="setRoadmapFilter(${idx})">
+      ${escapeHtml(key.replace(/^\d+\.\s*/, ''))} <span class="pill-count">${n}</span></div>`;
+  }).join('');
+}
+function setRoadmapFilter(i) {
+  const k = _rmFilterKeys[i];
+  if (k == null) return;
+  state.roadmapFilter = k;
+  renderRoadmap();
+}
+
 function rmPanelHtml(candidates) {
   const sel = state.roadmapSelected.size;
   const full = sel >= ROADMAP_MAX;
-  // Float selected to the top, keep original (block) order within each group.
-  const ordered = candidates
+  const shown = state.roadmapFilter === 'all'
+    ? candidates
+    : candidates.filter(d => d.block === state.roadmapFilter);
+  // Default order: highlighted takeaways first, then selected, then the rest;
+  // original (block) order preserved within each group.
+  const rank = d => state.takeawaysHighlighted.has(d.id) ? 0
+                  : state.roadmapSelected.has(d.id) ? 1 : 2;
+  const ordered = shown
     .map((d, i) => ({ d, i }))
-    .sort((a, b) => (state.roadmapSelected.has(b.d.id) - state.roadmapSelected.has(a.d.id)) || a.i - b.i)
+    .sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i)
     .map(x => x.d);
   return `
     <div class="tk-block-bar">
-      <span class="tk-block-name">Confirmed takeaways</span>
+      <span class="tk-block-name">${state.roadmapFilter === 'all' ? 'Confirmed takeaways' : escapeHtml(state.roadmapFilter.replace(/^\d+\.\s*/, ''))}</span>
       <span class="tk-block-count ${full ? 'full' : ''}">
         ${sel} selected in ${candidates.length} item${candidates.length === 1 ? '' : 's'}
         · ${sel} / ${ROADMAP_MAX} cap
@@ -579,8 +620,10 @@ function renderRoadmapRow(d, full) {
   const highlighted = state.takeawaysHighlighted.has(d.id);
   const locked = !selected && full;
   const initiative = (d.initiative || '').trim();
+  const c = blockColor(d.block);
   return `
-    <div class="tk-item ${selected ? 'selected' : ''} ${highlighted ? 'highlighted' : ''}">
+    <div class="tk-item ${selected ? 'selected' : ''} ${highlighted ? 'highlighted' : ''}"
+         style="border-left:5px solid ${c.bar}">
       <button class="tk-check ${locked ? 'locked' : ''}" ${locked ? 'disabled' : ''}
               onclick="toggleRoadmap(${d.id})"
               title="${selected ? 'Remove from roadmap' : (locked ? 'Roadmap limit reached' : 'Add to roadmap')}">
@@ -588,11 +631,11 @@ function renderRoadmapRow(d, full) {
       </button>
       <div class="tk-body">
         <div class="tk-field">
-          <span class="tk-label">Key Takeaway${highlighted ? ' ★' : ''}</span>
-          <div class="tk-text">${escapeHtml(d.takeaway)}</div>
+          <span class="tk-block-tag" style="background:${c.bg};color:${c.text}">${escapeHtml(d.block.replace(/^\d+\.\s*/, ''))}</span>
+          <div class="tk-text">${escapeHtml(d.takeaway)}${highlighted ? ' <span style="color:var(--amber)">★</span>' : ''}</div>
         </div>
         <div class="tk-field">
-          <span class="tk-label">Initiative · ${escapeHtml(d.block)}</span>
+          <span class="tk-label">Initiative</span>
           <div class="tk-init ${initiative ? '' : 'empty'}">${initiative ? escapeHtml(initiative) : '—'}</div>
         </div>
       </div>
