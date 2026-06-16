@@ -1328,3 +1328,20 @@ body {
 .rm-legend-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
 .rm-leg-item { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text); padding: 4px 0; }
 .rm-leg-sw { width: 26px; height: 14px; border-radius: 3px; flex: none; }
+
+/* ── DECK GENERATION ── */
+.deck-wrap { padding: 22px 26px 60px; max-width: 620px; margin: 0 auto; }
+.deck-form { margin-top: 22px; display: flex; flex-direction: column; gap: 16px; }
+.deck-row { display: flex; gap: 16px; }
+.deck-row .deck-field { flex: 1 1 0; }
+.deck-field { display: flex; flex-direction: column; gap: 5px; }
+.deck-field > span { font-size: 11px; font-weight: 600; color: var(--text); }
+.deck-field > span em { font-weight: 400; color: var(--muted); font-style: normal; }
+.deck-field input[type="text"] {
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+  font-size: 13px; font-family: inherit; color: var(--text);
+}
+.deck-field input[type="text"]:focus { outline: none; border-color: var(--accent); }
+.deck-field input[type="file"] { font-size: 12px; }
+.deck-filehint { font-size: 11px; color: var(--muted); }
+.deck-form .btn-primary { align-self: flex-start; margin-top: 4px; }

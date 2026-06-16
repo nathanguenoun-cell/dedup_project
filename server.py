@@ -202,6 +202,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _send_binary(self, data, content_type, filename):
+        self.send_response(200)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+        self.end_headers()
+        self.wfile.write(data)
+
     def _try_api(self, method, body):
         """Route /api/* (except /api/messages) to api_handlers. Returns True if handled."""
         path = self.path.split('?', 1)[0]
@@ -350,6 +358,40 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 dur = time.time() - t0
                 print(f"[messages] ERROR  block={block!r} after {dur:.1f}s: {type(e).__name__}: {e}", flush=True)
                 self._send_json(502, {"error": str(e)})
+            return
+
+        if path == '/api/deck':
+            if not auth.current_user(self):
+                self._send_json(401, {"error": "Not authenticated."})
+                return
+            try:
+                import base64, io as _io
+                import deck_builder
+                payload = json.loads(body) or {}
+                client = (payload.get('client') or '').strip()
+                if not client:
+                    self._send_json(400, {"error": "client name required."})
+                    return
+                xlsx_b64 = payload.get('xlsx_b64') or ''
+                if not xlsx_b64:
+                    self._send_json(400, {"error": "self-assessment xlsx required."})
+                    return
+                xlsx = _io.BytesIO(base64.b64decode(xlsx_b64))
+                template = os.path.join(DIR, 'templates', 'revenue_audit_template.pptx')
+                t0 = time.time()
+                deck = deck_builder.build_deck(
+                    template, xlsx, client,
+                    segment=(payload.get('segment') or None),
+                    date=(payload.get('date') or None))
+                print(f"[deck] ok client={client!r} in {time.time()-t0:.1f}s bytes_out={len(deck)}", flush=True)
+                fname = re.sub(r'[^A-Za-z0-9]+', '_', client).strip('_') + '_Revenue_Audit.pptx'
+                self._send_binary(
+                    deck,
+                    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    fname)
+            except Exception as e:
+                print(f"[deck] ERROR: {type(e).__name__}: {e}", flush=True)
+                self._send_json(500, {"error": str(e)})
             return
 
         if not self._try_api('POST', body):

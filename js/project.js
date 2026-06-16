@@ -18,7 +18,7 @@ const STAGES = [
   { key: 'roadmap',   label: 'Roadmap' },
   { key: 'deck',      label: 'Final Deck' },
 ];
-const STAGE_BUILT = { dedup: true, takeaways: true, roadmap: true, deck: false };
+const STAGE_BUILT = { dedup: true, takeaways: true, roadmap: true, deck: true };
 
 let state = {
   stage: 'dedup',         // which pipeline module is open (see STAGES)
@@ -282,6 +282,11 @@ function renderStage() {
   if (state.stage === 'roadmap') {
     if (sidebar) sidebar.style.display = 'none';
     renderRoadmap();
+    return;
+  }
+  if (state.stage === 'deck') {
+    if (sidebar) sidebar.style.display = 'none';
+    renderDeck();
     return;
   }
   // Future modules: scaffolded placeholder until their feature lands.
@@ -1027,6 +1032,113 @@ function confirmRoadmap() {
   state.roadmapConfirmed = true;
   saveProjectData(true);
   switchStage('deck');
+}
+
+// ─── Deck module ─────────────────────────────────────────────────
+// Generates the filled Revenue Audit deck from the bundled template: the user
+// uploads the self-assessment xlsx, the server places the Diagnosis Synthesis
+// dots and returns the .pptx for download.
+
+let _deckXlsx = null;   // { name, b64 }
+
+function renderDeck() {
+  const panel = document.getElementById('mainPanel');
+  document.getElementById('actionRow').style.display = 'none';
+  panel.innerHTML = `
+    <div class="deck-wrap">
+      <h2 class="tk-title">Generate the deck</h2>
+      <p class="tk-sub">Upload the self-assessment Excel export — the Diagnosis Synthesis
+         slides are filled with the scored dots and the deck downloads as a .pptx.</p>
+
+      <div class="deck-form">
+        <label class="deck-field">
+          <span>Client name</span>
+          <input id="deckClient" type="text" placeholder="e.g. Horizons Optical"
+                 value="${escapeHtml(PROJECT.name || '')}">
+        </label>
+        <div class="deck-row">
+          <label class="deck-field">
+            <span>Segment <em>(optional)</em></span>
+            <input id="deckSegment" type="text" placeholder="e.g. Enterprise">
+          </label>
+          <label class="deck-field">
+            <span>Date <em>(optional)</em></span>
+            <input id="deckDate" type="text" placeholder="e.g. June 2026">
+          </label>
+        </div>
+        <label class="deck-field">
+          <span>Self-assessment (.xlsx)</span>
+          <input id="deckFile" type="file" accept=".xlsx" onchange="onDeckFile(event)">
+          <span class="deck-filehint" id="deckFileName">No file selected.</span>
+        </label>
+
+        <button class="btn-primary" id="deckGenBtn" onclick="generateDeck()" disabled>
+          Generate deck
+        </button>
+        <span class="action-hint" id="deckHint">Upload the Excel file to enable generation.</span>
+      </div>
+    </div>`;
+}
+
+function onDeckFile(e) {
+  const file = e.target.files && e.target.files[0];
+  const nameEl = document.getElementById('deckFileName');
+  const btn = document.getElementById('deckGenBtn');
+  const hint = document.getElementById('deckHint');
+  if (!file) { _deckXlsx = null; btn.disabled = true; nameEl.textContent = 'No file selected.'; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    // dataURL → strip the "data:...;base64," prefix
+    _deckXlsx = { name: file.name, b64: String(reader.result).split(',')[1] };
+    nameEl.textContent = file.name;
+    btn.disabled = false;
+    hint.textContent = 'Ready to generate.';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function generateDeck() {
+  const client = document.getElementById('deckClient').value.trim();
+  const btn = document.getElementById('deckGenBtn');
+  const hint = document.getElementById('deckHint');
+  if (!client) { hint.textContent = 'Enter a client name first.'; return; }
+  if (!_deckXlsx) { hint.textContent = 'Upload the Excel file first.'; return; }
+
+  btn.disabled = true;
+  hint.textContent = 'Generating…';
+  try {
+    const res = await fetch('/api/deck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        client,
+        segment: document.getElementById('deckSegment').value.trim(),
+        date: document.getElementById('deckDate').value.trim(),
+        xlsx_b64: _deckXlsx.b64,
+      }),
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.json()).error || msg; } catch {}
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = m ? m[1] : 'deck.pptx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+    hint.textContent = '✓ Deck downloaded.';
+  } catch (err) {
+    hint.textContent = `Failed: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function updateHeader() {

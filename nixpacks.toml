@@ -5,5 +5,10 @@
 [phases.setup]
 nixPkgs = ["python3"]
 
+# Install the deck-generation deps (python-pptx, openpyxl). --break-system-packages
+# lets pip write into the nix python since there's no managed venv here.
+[phases.install]
+cmds = ["python3 -m pip install --break-system-packages -r requirements.txt"]
+
 [start]
 cmd = "python3 server.py"
