@@ -349,15 +349,24 @@ function tkPanelHtml() {
   const sel = items.filter(d => state.takeawaysSelected.has(d.id)).length;
   const hi = items.filter(d => state.takeawaysHighlighted.has(d.id)).length;
   const full = sel >= TAKEAWAYS_PER_BLOCK;
+  // Float highlighted to the very top, then plain-selected, keeping each group's
+  // original order. rank 0 = highlighted, 1 = selected, 2 = neither.
+  const rank = d => state.takeawaysHighlighted.has(d.id) ? 0
+                  : state.takeawaysSelected.has(d.id) ? 1 : 2;
+  const ordered = items
+    .map((d, i) => ({ d, i }))
+    .sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i)
+    .map(x => x.d);
   return `
     <div class="tk-block-bar">
       <span class="tk-block-name">${escapeHtml(block)}</span>
       <span class="tk-block-count ${full ? 'full' : ''}">
-        ${sel} / ${TAKEAWAYS_PER_BLOCK} selected${hi ? ` · ${hi} highlighted` : ''}
+        ${sel} selected in ${items.length} Key Takeaway${items.length === 1 ? '' : 's'}
+        · ${sel} / ${TAKEAWAYS_PER_BLOCK} cap${hi ? ` · ${hi} highlighted` : ''}
       </span>
     </div>
     <div class="tk-list">
-      ${items.map(d => renderTakeawayRow(d, full)).join('')}
+      ${ordered.map(d => renderTakeawayRow(d, full)).join('')}
     </div>`;
 }
 
