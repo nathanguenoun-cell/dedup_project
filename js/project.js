@@ -1454,7 +1454,7 @@ async function startAnalysis() {
     const bi = RAW_DATA.filter(d => d.block === block);
     const lex = getCandidatePairs(bi);
     const emb = vecById ? embeddingCandidatePairs(bi, vecById) : [];
-    const pairs = unionPairs(emb, lex);
+    const pairs = transitivePairs(unionPairs(emb, lex));
     candByBlock[block] = pairs; totalPairs += pairs.length;
     log(`  ✓ ${block.replace(/^\d+\.\s*/,'')} : ${pairs.length} pairs (emb ${emb.length} / lex ${lex.length}) · ${bi.length} issues`, 'done');
   }

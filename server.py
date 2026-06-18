@@ -50,7 +50,7 @@ VOYAGE_API_KEY = os.environ.get('VOYAGE_API_KEY', '')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 if VOYAGE_API_KEY:
     EMBED_PROVIDER = 'voyage'
-    EMBED_MODEL = os.environ.get('EMBEDDING_MODEL', 'voyage-3.5')
+    EMBED_MODEL = os.environ.get('EMBEDDING_MODEL', 'voyage-3-large')
 elif OPENAI_API_KEY:
     EMBED_PROVIDER = 'openai'
     EMBED_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
