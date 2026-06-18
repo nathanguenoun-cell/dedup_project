@@ -24,6 +24,13 @@ from pptx.dml.color import RGBColor
 # ── Axis constants (exact EMU match to the template) ─────────────────────────
 AXIS_LEFT    = 4.189
 COLUMN_WIDTH = 0.240
+
+# ── Key Takeaways panel (right side of each diagnosis synthesis slide) ────────
+TK_LEFT   = 5.60   # starts just right of the assessment axis
+TK_WIDTH  = 4.00   # to x≈9.6" on a 10" slide
+TK_TOP    = 1.50
+TK_BOTTOM = 5.50
+TK_HIGHLIGHT_BORDER = "C0392B"   # dark red for highlighted items
 DOT_EMU      = 108000
 DOT_WIDTH    = DOT_EMU / 914400
 DOT_OFFSET   = (COLUMN_WIDTH - DOT_WIDTH) / 2
@@ -243,6 +250,74 @@ def _replace_placeholders(slide, mapping):
                     t_elem.text = t_elem.text.replace(token, val)
 
 
+def _match_bb(bb_name, takeaways_dict):
+    """Case-insensitive match for building block names."""
+    if bb_name in takeaways_dict:
+        return takeaways_dict[bb_name]
+    lo = bb_name.lower()
+    for k, v in takeaways_dict.items():
+        if k.lower() == lo:
+            return v
+    return None
+
+
+def render_takeaways_on_slide(slide, items):
+    """Render selected key takeaways on the right side of a diagnosis synthesis slide.
+    Highlighted items get a red border + red accent bar."""
+    if not items:
+        return
+    n = len(items)
+    available = TK_BOTTOM - TK_TOP
+    item_h = min(0.55, available / n)
+    total_h = item_h * n
+    start_t = TK_TOP + (available - total_h) / 2   # center vertically
+
+    font_size = max(4.5, min(6.5, item_h * 72 * 0.23))
+    init_size = max(4.0, min(5.5, font_size * 0.82))
+    bar_w = 0.022
+    pad_v = max(0.015, item_h * 0.08)
+    pad_h = 0.05
+
+    for i, it in enumerate(items):
+        t = start_t + i * item_h
+        h = item_h - 0.004
+        highlighted = it.get('highlighted', False)
+        takeaway  = (it.get('takeaway')  or '').strip()
+        initiative = (it.get('initiative') or '').strip()
+
+        # Background fill
+        bg = "FEF5F5" if highlighted else "F7F8FA"
+        _add_rect(slide, TK_LEFT, t, TK_WIDTH, h, bg)
+
+        # Red border for highlighted items (stroke-only rectangle)
+        if highlighted:
+            border = slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE,
+                to_emu(TK_LEFT), to_emu(t), to_emu(TK_WIDTH), to_emu(h))
+            border.fill.background()
+            border.line.color.rgb = RGBColor.from_string(TK_HIGHLIGHT_BORDER)
+            border.line.width = Pt(1.5)
+            border.shadow.inherit = False
+
+        # Left accent bar (red for highlighted, slate for normal)
+        _add_rect(slide, TK_LEFT, t, bar_w, h,
+                  TK_HIGHLIGHT_BORDER if highlighted else "B0C4CE")
+
+        # Text area
+        tx = TK_LEFT + bar_w + pad_h
+        tw = TK_WIDTH - bar_w - pad_h - 0.04
+
+        if initiative:
+            kt_h = h * 0.58
+            _add_text(slide, tx, t + pad_v, tw, kt_h - pad_v,
+                      takeaway, font_size, "1A1A2E", wrap=True, anchor=MSO_ANCHOR.TOP)
+            _add_text(slide, tx, t + kt_h, tw, h - kt_h - 0.005,
+                      initiative, init_size, "5A6475", wrap=True, anchor=MSO_ANCHOR.TOP)
+        else:
+            _add_text(slide, tx, t + pad_v, tw, h - 2 * pad_v,
+                      takeaway, font_size, "1A1A2E", wrap=True, anchor=MSO_ANCHOR.MIDDLE)
+
+
 # ── Roadmap slide (slide 23 "Gantt view") ───────────────────────────────────
 # Coordinates lifted from the template's Gantt slide (inches).
 ROADMAP_SLIDE = 23
@@ -372,7 +447,7 @@ def render_roadmap_slide(prs, roadmap):
         _add_rect(slide, bx, cy - RM_BAR_H / 2, bw, RM_BAR_H, _block_hex(it.get('block', '')), rounded=True)
 
 
-def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, roadmap=None):
+def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, roadmap=None, takeaways=None):
     """Generate the filled deck. Returns the .pptx as bytes.
 
     `template_file` / `xlsx_file` are paths or binary file-likes.
@@ -409,6 +484,10 @@ def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, r
             y_top = y_list[i] - DOT_WIDTH / 2
             add_dot(slide, score_to_x(topics[i]['rating']), y_top, CLIENT_COLOR)
             add_dot(slide, score_to_x(topics[i]['atscale']), y_top, ATSCALE_COLOR)
+
+        if takeaways:
+            bb_items = _match_bb(bb_name, takeaways)
+            render_takeaways_on_slide(slide, bb_items or [])
 
     if roadmap:
         render_roadmap_slide(prs, roadmap)

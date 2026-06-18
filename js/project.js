@@ -1255,6 +1255,23 @@ function onDeckFile(e) {
 
 // The roadmap built in the Roadmap stage, shaped for the deck's Gantt slide.
 // Returns null when nothing has been selected (deck keeps the template roadmap).
+function buildTakeawaysPayload() {
+  const out = {};
+  BLOCKS.forEach(b => {
+    const bn = b.replace(/^\d+\.\s*/, '');
+    const items = RAW_DATA.filter(d =>
+      d.block === b && !state.removedIds.has(d.id) && state.takeawaysSelected.has(d.id));
+    if (items.length) {
+      out[bn] = items.map(d => ({
+        takeaway: d.takeaway || '',
+        initiative: d.initiative || '',
+        highlighted: state.takeawaysHighlighted.has(d.id),
+      }));
+    }
+  });
+  return out;
+}
+
 function buildRoadmapPayload() {
   if (!state.roadmapSelected || state.roadmapSelected.size === 0) return null;
   ensureRoadmapPlan();
@@ -1290,6 +1307,7 @@ async function generateDeck() {
         date: document.getElementById('deckDate').value.trim(),
         xlsx_b64: _deckXlsx.b64,
         roadmap: buildRoadmapPayload(),
+        takeaways: buildTakeawaysPayload(),
       }),
     });
     if (!res.ok) {
