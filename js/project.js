@@ -436,6 +436,9 @@ function renderTakeawayRow(d, blockFull) {
           <div class="tk-text">${escapeHtml(d.takeaway)}</div>
         </div>
         <div class="tk-field">
+          ${(() => { const c = blockColor(d.block); return `<span class="tk-block-tag" style="background:${c.bg};color:${c.text}">${escapeHtml(d.block.replace(/^\d+\.\s*/,''))}</span>`; })()}
+        </div>
+        <div class="tk-field">
           <span class="tk-label">Initiative</span>
           <div class="tk-init ${initiative ? '' : 'empty'}">${initiative ? escapeHtml(initiative) : '—'}</div>
         </div>
