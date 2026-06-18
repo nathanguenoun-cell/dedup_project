@@ -125,7 +125,7 @@ async function openProject(projectId) {
     const rm = d.roadmap || {};
     state.roadmapSelected = new Set(rm.selected || []);
     state.roadmapConfirmed = !!rm.confirmed;
-    state.roadmapPhase = rm.phase === 'build' ? 'build' : 'select';
+    state.roadmapPhase = ['build', 'rephrase'].includes(rm.phase) ? rm.phase : 'select';
     const p = rm.plan || {};
     state.roadmapPlan = {
       cycles: Math.min(ROADMAP_CYCLES_MAX, Math.max(1, p.cycles || 3)),
@@ -418,6 +418,28 @@ function tkPanelHtml() {
     </div>`;
 }
 
+function editIssueField(id, field) {
+  const el = document.querySelector(`[data-edit="${id}-${field}"]`);
+  if (!el || el.querySelector('textarea')) return;
+  const d = RAW_DATA.find(x => x.id === id);
+  if (!d) return;
+  const current = (d[field] || '').trim();
+  const ta = document.createElement('textarea');
+  ta.className = 'field-edit-input';
+  ta.value = current;
+  ta.rows = 2;
+  el.innerHTML = '';
+  el.appendChild(ta);
+  ta.focus(); ta.select();
+  const restore = v => { el.innerHTML = v ? escapeHtml(v) : '<span style="color:var(--border)">—</span>'; };
+  const commit = () => { d[field] = ta.value.trim(); restore(d[field]); saveProjectData(); };
+  ta.addEventListener('blur', commit);
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ta.blur(); }
+    if (e.key === 'Escape') { restore(current); }
+  });
+}
+
 function renderTakeawayRow(d, blockFull) {
   const selected = state.takeawaysSelected.has(d.id);
   const highlighted = state.takeawaysHighlighted.has(d.id);
@@ -432,15 +454,15 @@ function renderTakeawayRow(d, blockFull) {
       </button>
       <div class="tk-body">
         <div class="tk-field">
-          <span class="tk-label">Key Takeaway</span>
-          <div class="tk-text">${escapeHtml(d.takeaway)}</div>
+          <div class="tk-field-hd"><span class="tk-label">Key Takeaway</span><button class="field-edit-btn" onclick="editIssueField(${d.id},'takeaway')" title="Edit">✎</button></div>
+          <div class="tk-text" data-edit="${d.id}-takeaway">${escapeHtml(d.takeaway)}</div>
         </div>
         <div class="tk-field">
           ${(() => { const c = blockColor(d.block); return `<span class="tk-block-tag" style="background:${c.bg};color:${c.text}">${escapeHtml(d.block.replace(/^\d+\.\s*/,''))}</span>`; })()}
         </div>
         <div class="tk-field">
-          <span class="tk-label">Initiative</span>
-          <div class="tk-init ${initiative ? '' : 'empty'}">${initiative ? escapeHtml(initiative) : '—'}</div>
+          <div class="tk-field-hd"><span class="tk-label">Initiative</span><button class="field-edit-btn" onclick="editIssueField(${d.id},'initiative')" title="Edit">✎</button></div>
+          <div class="tk-init ${initiative ? '' : 'empty'}" data-edit="${d.id}-initiative">${initiative ? escapeHtml(initiative) : '—'}</div>
         </div>
       </div>
       <button class="tk-star ${highlighted ? 'on' : ''} ${locked ? 'locked' : ''}" ${locked ? 'disabled' : ''}
@@ -576,6 +598,7 @@ function renderRoadmap() {
   const valid = new Set(candidates.map(d => d.id));
   [...state.roadmapSelected].forEach(id => { if (!valid.has(id)) state.roadmapSelected.delete(id); });
 
+  if (state.roadmapPhase === 'rephrase') { renderRoadmapRephrase(candidates); return; }
   if (state.roadmapPhase === 'build') { renderRoadmapGantt(candidates); return; }
 
   actionRow.innerHTML = `
@@ -671,12 +694,16 @@ function renderRoadmapRow(d, full) {
       </button>
       <div class="tk-body">
         <div class="tk-field">
-          <span class="tk-block-tag" style="background:${c.bg};color:${c.text}">${escapeHtml(d.block.replace(/^\d+\.\s*/, ''))}</span>
-          <div class="tk-text">${escapeHtml(d.takeaway)}${highlighted ? ' <span style="color:var(--amber)">★</span>' : ''}</div>
+          <div class="tk-field-hd">
+            <span class="tk-block-tag" style="background:${c.bg};color:${c.text}">${escapeHtml(d.block.replace(/^\d+\.\s*/, ''))}</span>
+            ${highlighted ? '<span style="color:var(--amber);font-size:13px">★</span>' : ''}
+            <button class="field-edit-btn" onclick="editIssueField(${d.id},'takeaway')" title="Edit">✎</button>
+          </div>
+          <div class="tk-text" data-edit="${d.id}-takeaway">${escapeHtml(d.takeaway)}</div>
         </div>
         <div class="tk-field">
-          <span class="tk-label">Initiative</span>
-          <div class="tk-init ${initiative ? '' : 'empty'}">${initiative ? escapeHtml(initiative) : '—'}</div>
+          <div class="tk-field-hd"><span class="tk-label">Initiative</span><button class="field-edit-btn" onclick="editIssueField(${d.id},'initiative')" title="Edit">✎</button></div>
+          <div class="tk-init ${initiative ? '' : 'empty'}" data-edit="${d.id}-initiative">${initiative ? escapeHtml(initiative) : '—'}</div>
         </div>
       </div>
     </div>`;
@@ -767,7 +794,8 @@ function ensureRoadmapPlan() {
 function createRoadmap() {
   if (state.roadmapSelected.size === 0) return;
   ensureRoadmapPlan();
-  state.roadmapPhase = 'build';
+  state.roadmapConfirmed = true;
+  state.roadmapPhase = 'rephrase';
   saveProjectData(true);
   renderRoadmap();
 }
@@ -776,6 +804,72 @@ function backToRoadmapSelect() {
   state.roadmapPhase = 'select';
   saveProjectData();
   renderRoadmap();
+}
+
+function backToRephrase() {
+  state.roadmapPhase = 'rephrase';
+  saveProjectData();
+  renderRoadmap();
+}
+
+function proceedToGantt() {
+  state.roadmapPhase = 'build';
+  saveProjectData(true);
+  renderRoadmap();
+}
+
+// ─── Rephrase step ───────────────────────────────────────────────
+function renderRoadmapRephrase(candidates) {
+  const panel = document.getElementById('mainPanel');
+  const actionRow = document.getElementById('actionRow');
+  ensureRoadmapPlan();
+  const items = orderedRoadmapItems();
+
+  actionRow.innerHTML = `
+    <button class="btn-ghost" onclick="backToRoadmapSelect()">← Edit selection</button>
+    <button class="btn-primary" onclick="proceedToGantt()">Build roadmap →</button>
+    <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} — rename before placing on the Gantt</span>`;
+  actionRow.style.display = 'flex';
+
+  panel.innerHTML = `
+    <div class="tk-wrap">
+      <div class="tk-head">
+        <div>
+          <h2 class="tk-title">Rephrase programs</h2>
+          <p class="tk-sub">Edit each program label before placing it on the roadmap. The original wording is shown for reference.</p>
+        </div>
+      </div>
+      <div class="tk-list">
+        ${items.map(d => rephraseItemHtml(d)).join('')}
+      </div>
+    </div>`;
+}
+
+function rephraseItemHtml(d) {
+  const c = blockColor(d.block);
+  const label = rmLabel(d);
+  const orig = rmDefaultLabel(d);
+  return `
+    <div class="rephrase-item">
+      <span class="tk-block-tag" style="background:${c.bg};color:${c.text}">${escapeHtml(d.block.replace(/^\d+\.\s*/,''))}</span>
+      <textarea class="rephrase-label" rows="2"
+        onblur="commitRephrase(${d.id},this)"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
+      >${escapeHtml(label)}</textarea>
+      <div class="rephrase-orig" id="rephrase-orig-${d.id}">${label !== orig ? `Original: ${escapeHtml(orig)}` : ''}</div>
+    </div>`;
+}
+
+function commitRephrase(id, ta) {
+  const val = ta.value.trim();
+  const d = RAW_DATA.find(x => x.id === id);
+  if (!d) return;
+  const orig = rmDefaultLabel(d);
+  if (val && val !== orig) state.roadmapPlan.labels[id] = val;
+  else delete state.roadmapPlan.labels[id];
+  saveProjectData();
+  const origEl = document.getElementById(`rephrase-orig-${id}`);
+  if (origEl) origEl.textContent = val !== orig ? `Original: ${orig}` : '';
 }
 
 // Changing the cycle count resets the partition to equal widths; bars keep
@@ -825,7 +919,7 @@ function renderRoadmapGantt(candidates) {
   const panel = document.getElementById('mainPanel');
 
   actionRow.innerHTML = `
-    <button class="btn-ghost" onclick="backToRoadmapSelect()">← Edit selection</button>
+    <button class="btn-ghost" onclick="backToRephrase()">← Rephrase</button>
     <button class="btn-primary" onclick="confirmRoadmap()">Confirm roadmap → Deck</button>
     <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} · ${plan.cycles} cycles · drag bars to move/resize, ⠿ to reorder, dividers to rebalance</span>`;
   actionRow.style.display = 'flex';
