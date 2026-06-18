@@ -25,12 +25,15 @@ from pptx.dml.color import RGBColor
 AXIS_LEFT    = 4.189
 COLUMN_WIDTH = 0.240
 
-# ── Key Takeaways panel (right side of each diagnosis synthesis slide) ────────
-TK_LEFT   = 5.60   # starts just right of the assessment axis
-TK_WIDTH  = 4.00   # to x≈9.6" on a 10" slide
-TK_TOP    = 1.50
-TK_BOTTOM = 5.50
-TK_HIGHLIGHT_BORDER = "C0392B"   # dark red for highlighted items
+# ── Key Takeaways / Initiatives columns (right half of diagnosis synthesis slides)
+# Two columns already headed in the template: "Key takeaways" + "Initiatives recommended"
+TK_KT_LEFT    = 5.40   # Key takeaways column left edge
+TK_KT_WIDTH   = 2.20
+TK_INIT_LEFT  = 7.65   # Initiatives recommended column left edge
+TK_INIT_WIDTH = 2.20
+TK_ROW_TOP    = 1.35   # first row starts just below the column headers
+TK_ROW_BOTTOM = 5.70
+TK_HIGHLIGHT_BORDER = "C0392B"   # dark red border for highlighted items
 DOT_EMU      = 108000
 DOT_WIDTH    = DOT_EMU / 914400
 DOT_OFFSET   = (COLUMN_WIDTH - DOT_WIDTH) / 2
@@ -262,60 +265,54 @@ def _match_bb(bb_name, takeaways_dict):
 
 
 def render_takeaways_on_slide(slide, items):
-    """Render selected key takeaways on the right side of a diagnosis synthesis slide.
-    Highlighted items get a red border + red accent bar."""
+    """Render KTs in the 'Key takeaways' column and initiatives in the
+    'Initiatives recommended' column, matching the template layout.
+    Highlighted items get a red border box spanning both columns."""
     if not items:
         return
     n = len(items)
-    available = TK_BOTTOM - TK_TOP
-    item_h = min(0.55, available / n)
-    total_h = item_h * n
-    start_t = TK_TOP + (available - total_h) / 2   # center vertically
+    available = TK_ROW_BOTTOM - TK_ROW_TOP
+    row_h = min(0.60, available / n)
+    total_h = row_h * n
+    start_t = TK_ROW_TOP + (available - total_h) / 2   # center vertically
 
-    font_size = max(4.5, min(6.5, item_h * 72 * 0.23))
-    init_size = max(4.0, min(5.5, font_size * 0.82))
-    bar_w = 0.022
-    pad_v = max(0.015, item_h * 0.08)
-    pad_h = 0.05
+    font_kt   = max(5.0, min(7.0, row_h * 72 * 0.22))
+    font_init = max(4.5, min(6.0, font_kt * 0.85))
+    pad_v = max(0.018, row_h * 0.07)
+    # full span used for the red highlight box
+    full_w = TK_INIT_LEFT + TK_INIT_WIDTH - TK_KT_LEFT
 
     for i, it in enumerate(items):
-        t = start_t + i * item_h
-        h = item_h - 0.004
+        t = start_t + i * row_h
+        h = row_h - 0.006
         highlighted = it.get('highlighted', False)
-        takeaway  = (it.get('takeaway')  or '').strip()
+        takeaway   = (it.get('takeaway')   or '').strip()
         initiative = (it.get('initiative') or '').strip()
 
-        # Background fill
-        bg = "FEF5F5" if highlighted else "F7F8FA"
-        _add_rect(slide, TK_LEFT, t, TK_WIDTH, h, bg)
-
-        # Red border for highlighted items (stroke-only rectangle)
         if highlighted:
+            # Light pink background spanning both columns
+            _add_rect(slide, TK_KT_LEFT, t, full_w, h, "FEF0F0")
+            # Red border box
             border = slide.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
-                to_emu(TK_LEFT), to_emu(t), to_emu(TK_WIDTH), to_emu(h))
+                to_emu(TK_KT_LEFT), to_emu(t), to_emu(full_w), to_emu(h))
             border.fill.background()
             border.line.color.rgb = RGBColor.from_string(TK_HIGHLIGHT_BORDER)
             border.line.width = Pt(1.5)
             border.shadow.inherit = False
 
-        # Left accent bar (red for highlighted, slate for normal)
-        _add_rect(slide, TK_LEFT, t, bar_w, h,
-                  TK_HIGHLIGHT_BORDER if highlighted else "B0C4CE")
+        # Key takeaway text (left column)
+        _add_text(slide, TK_KT_LEFT + 0.04, t + pad_v,
+                  TK_KT_WIDTH - 0.06, h - 2 * pad_v,
+                  takeaway, font_kt, "1A1A2E",
+                  wrap=True, anchor=MSO_ANCHOR.MIDDLE)
 
-        # Text area
-        tx = TK_LEFT + bar_w + pad_h
-        tw = TK_WIDTH - bar_w - pad_h - 0.04
-
+        # Initiative text (right column)
         if initiative:
-            kt_h = h * 0.58
-            _add_text(slide, tx, t + pad_v, tw, kt_h - pad_v,
-                      takeaway, font_size, "1A1A2E", wrap=True, anchor=MSO_ANCHOR.TOP)
-            _add_text(slide, tx, t + kt_h, tw, h - kt_h - 0.005,
-                      initiative, init_size, "5A6475", wrap=True, anchor=MSO_ANCHOR.TOP)
-        else:
-            _add_text(slide, tx, t + pad_v, tw, h - 2 * pad_v,
-                      takeaway, font_size, "1A1A2E", wrap=True, anchor=MSO_ANCHOR.MIDDLE)
+            _add_text(slide, TK_INIT_LEFT + 0.04, t + pad_v,
+                      TK_INIT_WIDTH - 0.06, h - 2 * pad_v,
+                      initiative, font_init, "2D5A6B",
+                      wrap=True, anchor=MSO_ANCHOR.MIDDLE)
 
 
 # ── Roadmap slide (slide 23 "Gantt view") ───────────────────────────────────
