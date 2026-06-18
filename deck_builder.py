@@ -264,10 +264,22 @@ def _match_bb(bb_name, takeaways_dict):
     return None
 
 
+def _clear_tk_area(slide):
+    """Remove any pre-existing shapes (placeholder boxes, etc.) from the
+    KT/initiatives area of a diagnosis synthesis slide so they don't bleed
+    through when we add our content."""
+    for sh in list(slide.shapes):
+        l = sh.left  / 914400
+        t = sh.top   / 914400
+        if l >= TK_KT_LEFT - 0.05 and TK_ROW_TOP - 0.05 <= t <= TK_ROW_BOTTOM + 0.05:
+            sh._element.getparent().remove(sh._element)
+
+
 def render_takeaways_on_slide(slide, items):
     """Render KTs in the 'Key takeaways' column and initiatives in the
     'Initiatives recommended' column, matching the template layout.
     Highlighted items get a red border box spanning both columns."""
+    _clear_tk_area(slide)
     if not items:
         return
     n = len(items)
@@ -276,8 +288,7 @@ def render_takeaways_on_slide(slide, items):
     total_h = row_h * n
     start_t = TK_ROW_TOP + (available - total_h) / 2   # center vertically
 
-    font_kt   = max(5.0, min(7.0, row_h * 72 * 0.22))
-    font_init = max(4.5, min(6.0, font_kt * 0.85))
+    font_size = max(5.0, min(7.0, row_h * 72 * 0.22))   # same size for KT and initiative
     pad_v = max(0.018, row_h * 0.07)
     # full span used for the red highlight box
     full_w = TK_INIT_LEFT + TK_INIT_WIDTH - TK_KT_LEFT
@@ -304,14 +315,14 @@ def render_takeaways_on_slide(slide, items):
         # Key takeaway text (left column)
         _add_text(slide, TK_KT_LEFT + 0.04, t + pad_v,
                   TK_KT_WIDTH - 0.06, h - 2 * pad_v,
-                  takeaway, font_kt, "1A1A2E",
+                  takeaway, font_size, "1A1A2E",
                   wrap=True, anchor=MSO_ANCHOR.MIDDLE)
 
-        # Initiative text (right column)
+        # Initiative text (right column, same font size)
         if initiative:
             _add_text(slide, TK_INIT_LEFT + 0.04, t + pad_v,
                       TK_INIT_WIDTH - 0.06, h - 2 * pad_v,
-                      initiative, font_init, "2D5A6B",
+                      initiative, font_size, "2D5A6B",
                       wrap=True, anchor=MSO_ANCHOR.MIDDLE)
 
 
@@ -482,9 +493,8 @@ def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, r
             add_dot(slide, score_to_x(topics[i]['rating']), y_top, CLIENT_COLOR)
             add_dot(slide, score_to_x(topics[i]['atscale']), y_top, ATSCALE_COLOR)
 
-        if takeaways:
-            bb_items = _match_bb(bb_name, takeaways)
-            render_takeaways_on_slide(slide, bb_items or [])
+        bb_items = _match_bb(bb_name, takeaways) if takeaways else []
+        render_takeaways_on_slide(slide, bb_items or [])
 
     if roadmap:
         render_roadmap_slide(prs, roadmap)
