@@ -31,8 +31,8 @@ TK_KT_LEFT    = 5.40   # Key takeaways column left edge
 TK_KT_WIDTH   = 2.20
 TK_INIT_LEFT  = 7.65   # Initiatives recommended column left edge
 TK_INIT_WIDTH = 2.20
-TK_ROW_TOP    = 1.35   # first row starts just below the column headers
-TK_ROW_BOTTOM = 5.70
+TK_ROW_TOP    = 1.50   # first row, just below the column headers
+TK_ROW_BOTTOM = 5.40   # bottom of the content area
 TK_HIGHLIGHT_BORDER = "C0392B"   # dark red border for highlighted items
 DOT_EMU      = 108000
 DOT_WIDTH    = DOT_EMU / 914400
@@ -265,14 +265,25 @@ def _match_bb(bb_name, takeaways_dict):
 
 
 def _clear_tk_area(slide):
-    """Remove any pre-existing shapes (placeholder boxes, etc.) from the
-    KT/initiatives area of a diagnosis synthesis slide so they don't bleed
-    through when we add our content."""
+    """Remove only red/colored-border placeholder boxes from the KT area.
+    Shapes with text (column headers, existing content) are left untouched
+    to avoid corrupting the template layout."""
+    from pptx.oxml.ns import qn
     for sh in list(slide.shapes):
         l = sh.left  / 914400
         t = sh.top   / 914400
-        if l >= TK_KT_LEFT - 0.05 and TK_ROW_TOP - 0.05 <= t <= TK_ROW_BOTTOM + 0.05:
-            sh._element.getparent().remove(sh._element)
+        if not (l >= TK_KT_LEFT - 0.1 and TK_ROW_TOP - 0.2 <= t <= TK_ROW_BOTTOM + 0.1):
+            continue
+        # Keep any shape that has real text — those are column headers or content
+        if sh.has_text_frame and sh.text_frame.text.strip():
+            continue
+        # Only remove shapes that carry a solid-fill border line (= placeholder boxes)
+        try:
+            ln = sh.element.find('.//' + qn('a:ln'))
+            if ln is not None and ln.find('.//' + qn('a:solidFill')) is not None:
+                sh._element.getparent().remove(sh._element)
+        except Exception:
+            pass
 
 
 def render_takeaways_on_slide(slide, items):
