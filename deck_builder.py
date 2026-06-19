@@ -31,7 +31,7 @@ TK_KT_LEFT    = 5.40   # Key takeaways column left edge
 TK_KT_WIDTH   = 2.20
 TK_INIT_LEFT  = 7.65   # Initiatives recommended column left edge
 TK_INIT_WIDTH = 2.20
-TK_ROW_TOP    = 1.50   # first row, just below the column headers
+TK_ROW_TOP    = 1.70   # first row, below the column headers (headers end ~1.5")
 TK_ROW_BOTTOM = 5.40   # bottom of the content area
 TK_HIGHLIGHT_BORDER = "C0392B"   # dark red border for highlighted items
 DOT_EMU      = 108000
@@ -485,9 +485,15 @@ def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, r
 
     for slide_num, bb_name in SLIDE_BB_MAP.items():
         slide = prs.slides[slide_num - 1]
+
+        # KT/initiative rendering is independent of the xlsx data — always run it.
+        bb_items = _match_bb(bb_name, takeaways) if takeaways else []
+        render_takeaways_on_slide(slide, bb_items or [])
+
+        # Dots + grades require xlsx data; skip the rest if not available.
         avgs = bb_avgs.get(bb_name)
         if avgs is None:
-            continue                          # no data for this block — leave as-is
+            continue
         ca, aa = avgs['client_avg'], avgs['atscale_avg']
         topics = topics_by_bb[bb_name]
         y_list = SLIDE_Y_CENTERS[slide_num]
@@ -503,9 +509,6 @@ def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, r
             y_top = y_list[i] - DOT_WIDTH / 2
             add_dot(slide, score_to_x(topics[i]['rating']), y_top, CLIENT_COLOR)
             add_dot(slide, score_to_x(topics[i]['atscale']), y_top, ATSCALE_COLOR)
-
-        bb_items = _match_bb(bb_name, takeaways) if takeaways else []
-        render_takeaways_on_slide(slide, bb_items or [])
 
     if roadmap:
         render_roadmap_slide(prs, roadmap)
