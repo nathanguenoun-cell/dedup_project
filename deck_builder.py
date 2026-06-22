@@ -376,22 +376,31 @@ RM_BAR_H = 0.085
 RM_CYC_T, RM_CYC_H = 4.17, 0.20        # bottom cycle bars
 RM_CYC_BAR = "2A41E5"   # matches --accent in the web app
 
-# Vibrant per-building-block colors matching the screenshot legend.
-ROADMAP_BLOCK_COLORS = {
-    "sales hiring & ramp-up":         "F4B942",  # warm amber
-    "sales enablement":               "5B9BD5",  # medium blue
-    "sales performance management":   "70BCD4",  # steel teal
-    "talent management":              "8FBC5A",  # fresh green
-    "demand generation":              "9B8DC4",  # soft purple
-    "sales execution":                "D4827A",  # muted coral
-    "client relationship":            "5FAD8C",  # teal green
-    "revenue operations":             "7EB3C8",  # sky blue
-}
+# Legend layout (mirrors the template's 2-row × 4-col grid).
+RM_LEG_T       = 4.65   # top of "Building Blocks" title
+RM_LEG_ROW_H   = 0.21   # row height
+RM_LEG_COL_W   = 1.11   # column width
+RM_LEG_COLS    = 4      # chips per row
+RM_LEG_SW_W    = 0.22   # swatch width
+RM_LEG_SW_H    = 0.10   # swatch height
+RM_LEG_SW_GAP  = 0.06   # gap between swatch and label
 
 
-def _block_hex(block):
-    key = re.sub(r'^\s*\d+[.)]\s*', '', block or '').strip().lower()
-    return ROADMAP_BLOCK_COLORS.get(key, "C8C5C5")
+def _block_color_hex(idx):
+    """Replicate JS blockColor(block).fill = hsl(idx*47 % 360, 58%, 74%)."""
+    import colorsys
+    hue = (idx * 47) % 360
+    r, g, b = colorsys.hls_to_rgb(hue / 360.0, 0.74, 0.58)
+    return f"{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"
+
+
+def _block_hex(block, block_order):
+    clean = re.sub(r'^\s*\d+[.)]\s*', '', block or '').strip()
+    try:
+        idx = block_order.index(clean)
+    except ValueError:
+        idx = 0
+    return _block_color_hex(idx)
 
 
 def _add_rect(slide, l, t, w, h, fill_hex, rounded=False):
@@ -434,6 +443,12 @@ def render_roadmap_slide(prs, roadmap):
         return
     slide = prs.slides[ROADMAP_SLIDE - 1]
 
+    # Derive block order from items (preserving first-appearance order).
+    block_order = list(dict.fromkeys(
+        re.sub(r'^\s*\d+[.)]\s*', '', it.get('block', '')).strip()
+        for it in items if it.get('block')
+    ))
+
     cycles = max(1, int(roadmap.get('cycles') or 1))
     weights = roadmap.get('weights') or [1.0 / cycles] * cycles
     if len(weights) != cycles:
@@ -441,49 +456,27 @@ def render_roadmap_slide(prs, roadmap):
     tot = sum(weights) or 1.0
     weights = [w / tot for w in weights]
 
-    # Clear the dynamic plot band (keep title, subtitle, rotated axis label at
-    # L<0, header band, and the Building Blocks legend below T=4.45).
+    # Clear everything in the dynamic plot band AND the legend area.
     for sh in list(slide.shapes):
         top = sh.top / 914400
         left = sh.left / 914400
-        if 0.85 <= top <= 4.45 and left >= 0.2:
+        if 0.85 <= top and left >= 0.2:
             sh._element.getparent().remove(sh._element)
 
-    # Update legend chip colors to match the new ROADMAP_BLOCK_COLORS palette.
-    # Legend text abbreviations → block key mapping.
-    _LEGEND_TEXT_MAP = {
-        "sales hiring": "sales hiring & ramp-up",
-        "sales enablement": "sales enablement",
-        "sales perf": "sales performance management",
-        "talent management": "talent management",
-        "demand gen": "demand generation",
-        "sales execution": "sales execution",
-        "client relationship": "client relationship",
-        "rev ops": "revenue operations",
-    }
-    # Collect text labels in the legend area (top > 4.45) keyed by (left, top).
-    legend_texts = {}
-    for sh in slide.shapes:
-        if sh.top / 914400 > 4.45 and sh.has_text_frame:
-            txt = sh.text_frame.text.strip().lower()
-            legend_texts[(round(sh.left / 914400, 1), round(sh.top / 914400, 1))] = txt
-    # Update solid-fill chips at the same position as a known text label.
-    from pptx.enum.dml import MSO_THEME_COLOR
-    for sh in slide.shapes:
-        if sh.top / 914400 <= 4.45:
-            continue
-        try:
-            fill = sh.fill
-            if fill.type != 1:  # SOLID
-                continue
-        except Exception:
-            continue
-        pos_key = (round(sh.left / 914400, 1), round(sh.top / 914400, 1))
-        txt = legend_texts.get(pos_key, "")
-        block_key = next((v for k, v in _LEGEND_TEXT_MAP.items() if k in txt), None)
-        if block_key:
-            fill.solid()
-            fill.fore_color.rgb = RGBColor.from_string(ROADMAP_BLOCK_COLORS[block_key])
+    # Rebuild legend from scratch (matches web app layout: 2 rows × 4 cols).
+    _add_text(slide, RM_PLOT_L, RM_LEG_T, RM_LEG_COL_W, RM_LEG_ROW_H,
+              "Building Blocks", 7, "19323F", bold=True)
+    for idx, block in enumerate(block_order):
+        col = idx % RM_LEG_COLS
+        row = idx // RM_LEG_COLS
+        x = RM_PLOT_L + col * RM_LEG_COL_W
+        y = RM_LEG_T + RM_LEG_ROW_H + row * RM_LEG_ROW_H
+        color = _block_color_hex(idx)
+        _add_rect(slide, x, y + (RM_LEG_ROW_H - RM_LEG_SW_H) / 2,
+                  RM_LEG_SW_W, RM_LEG_SW_H, color, rounded=True)
+        _add_text(slide, x + RM_LEG_SW_W + RM_LEG_SW_GAP, y,
+                  RM_LEG_COL_W - RM_LEG_SW_W - RM_LEG_SW_GAP, RM_LEG_ROW_H,
+                  block, 6, "19323F", anchor=MSO_ANCHOR.MIDDLE)
 
     # Bottom cycle bars + vertical cycle separator lines.
     cum = 0.0
@@ -525,7 +518,7 @@ def render_roadmap_slide(prs, roadmap):
         e = max(s, min(1.0, float(it.get('end', s) or s)))
         bx = RM_PLOT_L + s * RM_PLOT_W
         bw = max(0.06, (e - s) * RM_PLOT_W)
-        _add_rect(slide, bx, cy - RM_BAR_H / 2, bw, RM_BAR_H, _block_hex(it.get('block', '')), rounded=True)
+        _add_rect(slide, bx, cy - RM_BAR_H / 2, bw, RM_BAR_H, _block_hex(it.get('block', ''), block_order), rounded=True)
 
 
 def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, roadmap=None, takeaways=None):
