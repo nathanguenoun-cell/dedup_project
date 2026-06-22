@@ -503,11 +503,15 @@ def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, r
     for slide in prs.slides:
         _replace_placeholders(slide, title_map)
 
+    print(f"[deck] takeaways keys in payload: {list((takeaways or {}).keys())}", flush=True)
+
     for slide_num, bb_name in SLIDE_BB_MAP.items():
         slide = prs.slides[slide_num - 1]
 
         # KT/initiative rendering is independent of the xlsx data — always run it.
         bb_items = _match_bb(bb_name, takeaways) if takeaways else []
+        n_items = len(bb_items) if bb_items else 0
+        print(f"[deck] slide {slide_num} '{bb_name}': {n_items} KT items", flush=True)
         render_takeaways_on_slide(slide, bb_items or [])
 
         # Dots + grades require xlsx data; skip the rest if not available.
