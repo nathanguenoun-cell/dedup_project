@@ -378,6 +378,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return
                 xlsx = _io.BytesIO(base64.b64decode(xlsx_b64))
                 template = os.path.join(DIR, 'templates', 'revenue_audit_template.pptx')
+                tk = payload.get('takeaways') or {}
+                print(f"[deck] takeaways blocks received: {list(tk.keys())}", flush=True)
+                print(f"[deck] expected blocks: {list(deck_builder.SLIDE_BB_MAP.values())}", flush=True)
                 t0 = time.time()
                 deck = deck_builder.build_deck(
                     template, xlsx, client,
