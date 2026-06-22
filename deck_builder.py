@@ -374,9 +374,7 @@ RM_ROWS_T, RM_ROWS_H = 1.03, 3.02      # rows band
 RM_MONTH_T = 0.87                      # month header row (above the rows)
 RM_BAR_H = 0.085
 RM_CYC_T, RM_CYC_H = 4.17, 0.20        # bottom cycle bars
-RM_CYC_BG  = ["EEF2FA", "F4F6FB", "F8F9FD"]   # cycle column tints (very subtle)
-RM_CYC_BAR = ["1E3A8A", "2563EB", "3B82F6"]   # richer navy-blue cycle bars
-RM_ROW_STRIPE = "F7F8FC"                        # alternating row tint
+RM_CYC_BAR = ["1E3A8A", "2563EB", "3B82F6"]   # navy-blue cycle bars
 
 # Vibrant per-building-block colors matching the screenshot legend.
 ROADMAP_BLOCK_COLORS = {
@@ -451,18 +449,20 @@ def render_roadmap_slide(prs, roadmap):
         if 0.85 <= top <= 4.45 and left >= 0.2:
             sh._element.getparent().remove(sh._element)
 
-    # Cycle background columns + bottom cycle bars.
+    # Bottom cycle bars + vertical cycle separator lines.
     cum = 0.0
     for k in range(cycles):
         x = RM_PLOT_L + cum * RM_PLOT_W
         w = weights[k] * RM_PLOT_W
-        _add_rect(slide, x, RM_ROWS_T, w, RM_ROWS_H, RM_CYC_BG[k % len(RM_CYC_BG)])
         _add_rect(slide, x, RM_CYC_T, w, RM_CYC_H, RM_CYC_BAR[k % len(RM_CYC_BAR)], rounded=True)
         _add_text(slide, x, RM_CYC_T + 0.012, w, RM_CYC_H, f"Cycle {k + 1}", 7, "FFFFFF",
                   bold=True, align=PP_ALIGN.CENTER)
+        # Cycle separator line (skip first — left edge of plot area)
+        if k > 0:
+            _add_rect(slide, x - 0.005, RM_ROWS_T, 0.010, RM_ROWS_H + (RM_CYC_T - RM_ROWS_T), "B0B8C8")
         cum += weights[k]
 
-    # Month axis: equal columns labelled from the app, with separator lines.
+    # Month axis: labels + thin separator lines.
     month_labels = roadmap.get('monthLabels') or []
     months = max(1, int(roadmap.get('months') or len(month_labels) or 1))
     mw = RM_PLOT_W / months
@@ -472,20 +472,16 @@ def render_roadmap_slide(prs, roadmap):
         _add_text(slide, mx, RM_MONTH_T, mw, 0.16, name, 6.5, "42718A",
                   bold=True, align=PP_ALIGN.CENTER)
         if i > 0:
-            _add_rect(slide, mx - 0.004, RM_ROWS_T, 0.008, RM_ROWS_H, "D9D9D9")
+            _add_rect(slide, mx - 0.003, RM_ROWS_T, 0.006, RM_ROWS_H, "E0E4EC")
 
     # Rows: numbered label + a block-coloured bar positioned on the 0..1 timeline.
     n = min(len(items), 25)
     row_h = min(0.155, RM_ROWS_H / n)
     lbl_size = max(4.0, min(RM_LABEL_SIZE, (row_h * 72 / 2) * 0.85))
-    full_w = RM_LABEL_W + RM_PLOT_W + (RM_PLOT_L - RM_LABEL_L)
     for i in range(n):
         it = items[i]
         ry = RM_ROWS_T + i * row_h
         cy = ry + row_h / 2
-        # Alternating row stripe across the full width (label + plot area).
-        if i % 2 == 1:
-            _add_rect(slide, RM_LABEL_L, ry, full_w, row_h, RM_ROW_STRIPE)
         _add_text(slide, RM_LABEL_L, ry, RM_LABEL_W, row_h,
                   f"{i + 1}. {it.get('label', '')}", lbl_size, "19323F",
                   wrap=True, anchor=MSO_ANCHOR.MIDDLE, line_spacing=0.9)
