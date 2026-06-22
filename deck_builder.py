@@ -374,7 +374,7 @@ RM_ROWS_T, RM_ROWS_H = 1.03, 3.02      # rows band
 RM_MONTH_T = 0.87                      # month header row (above the rows)
 RM_BAR_H = 0.085
 RM_CYC_T, RM_CYC_H = 4.17, 0.20        # bottom cycle bars
-RM_CYC_BAR = ["1E3A8A", "2563EB", "3B82F6"]   # navy-blue cycle bars
+RM_CYC_BAR = "2A41E5"   # matches --accent in the web app
 
 # Vibrant per-building-block colors matching the screenshot legend.
 ROADMAP_BLOCK_COLORS = {
@@ -454,12 +454,12 @@ def render_roadmap_slide(prs, roadmap):
     for k in range(cycles):
         x = RM_PLOT_L + cum * RM_PLOT_W
         w = weights[k] * RM_PLOT_W
-        _add_rect(slide, x, RM_CYC_T, w, RM_CYC_H, RM_CYC_BAR[k % len(RM_CYC_BAR)], rounded=True)
+        _add_rect(slide, x, RM_CYC_T, w, RM_CYC_H, RM_CYC_BAR, rounded=True)
         _add_text(slide, x, RM_CYC_T + 0.012, w, RM_CYC_H, f"Cycle {k + 1}", 7, "FFFFFF",
                   bold=True, align=PP_ALIGN.CENTER)
-        # Cycle separator line (skip first — left edge of plot area)
+        # Cycle separator line from top of rows to bottom of cycle bar
         if k > 0:
-            _add_rect(slide, x - 0.005, RM_ROWS_T, 0.010, RM_ROWS_H + (RM_CYC_T - RM_ROWS_T), "B0B8C8")
+            _add_rect(slide, x - 0.005, RM_ROWS_T, 0.010, RM_CYC_T + RM_CYC_H - RM_ROWS_T, "B0B8C8")
         cum += weights[k]
 
     # Month axis: labels + thin separator lines.
