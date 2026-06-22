@@ -280,6 +280,13 @@ def _match_bb(bb_name, takeaways_dict):
         if norm in nk or nk in norm:
             print(f"[deck] partial match: {bb_name!r} ~ {k!r}", flush=True)
             return v
+    # Word-subset: all words of the shorter name appear in the longer one
+    norm_words = set(norm.split())
+    for k, v in takeaways_dict.items():
+        nk_words = set(_norm_bb(k).split())
+        if norm_words <= nk_words or nk_words <= norm_words:
+            print(f"[deck] word-subset match: {bb_name!r} ~ {k!r}", flush=True)
+            return v
     print(f"[deck] NO match for slide block {bb_name!r} — available: {list(takeaways_dict.keys())}", flush=True)
     return None
 
