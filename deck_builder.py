@@ -253,14 +253,34 @@ def _replace_placeholders(slide, mapping):
                     t_elem.text = t_elem.text.replace(token, val)
 
 
+def _norm_bb(s):
+    """Normalize a block name for fuzzy matching: lowercase, & → and, strip punctuation/spaces."""
+    s = s.lower().strip()
+    s = s.replace('&', 'and')
+    s = re.sub(r'[^a-z0-9 ]', ' ', s)
+    return re.sub(r'\s+', ' ', s).strip()
+
+
 def _match_bb(bb_name, takeaways_dict):
-    """Case-insensitive match for building block names."""
+    """Match a SLIDE_BB_MAP name against the app's takeaways dict.
+    Tries exact → case-insensitive → punctuation-normalized → partial containment."""
     if bb_name in takeaways_dict:
         return takeaways_dict[bb_name]
     lo = bb_name.lower()
     for k, v in takeaways_dict.items():
         if k.lower() == lo:
             return v
+    norm = _norm_bb(bb_name)
+    for k, v in takeaways_dict.items():
+        if _norm_bb(k) == norm:
+            return v
+    # Partial: one name contains the other (handles shortened block names)
+    for k, v in takeaways_dict.items():
+        nk = _norm_bb(k)
+        if norm in nk or nk in norm:
+            print(f"[deck] partial match: {bb_name!r} ~ {k!r}", flush=True)
+            return v
+    print(f"[deck] NO match for slide block {bb_name!r} — available: {list(takeaways_dict.keys())}", flush=True)
     return None
 
 
