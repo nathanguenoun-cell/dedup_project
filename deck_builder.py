@@ -449,6 +449,42 @@ def render_roadmap_slide(prs, roadmap):
         if 0.85 <= top <= 4.45 and left >= 0.2:
             sh._element.getparent().remove(sh._element)
 
+    # Update legend chip colors to match the new ROADMAP_BLOCK_COLORS palette.
+    # Legend text abbreviations → block key mapping.
+    _LEGEND_TEXT_MAP = {
+        "sales hiring": "sales hiring & ramp-up",
+        "sales enablement": "sales enablement",
+        "sales perf": "sales performance management",
+        "talent management": "talent management",
+        "demand gen": "demand generation",
+        "sales execution": "sales execution",
+        "client relationship": "client relationship",
+        "rev ops": "revenue operations",
+    }
+    # Collect text labels in the legend area (top > 4.45) keyed by (left, top).
+    legend_texts = {}
+    for sh in slide.shapes:
+        if sh.top / 914400 > 4.45 and sh.has_text_frame:
+            txt = sh.text_frame.text.strip().lower()
+            legend_texts[(round(sh.left / 914400, 1), round(sh.top / 914400, 1))] = txt
+    # Update solid-fill chips at the same position as a known text label.
+    from pptx.enum.dml import MSO_THEME_COLOR
+    for sh in slide.shapes:
+        if sh.top / 914400 <= 4.45:
+            continue
+        try:
+            fill = sh.fill
+            if fill.type != 1:  # SOLID
+                continue
+        except Exception:
+            continue
+        pos_key = (round(sh.left / 914400, 1), round(sh.top / 914400, 1))
+        txt = legend_texts.get(pos_key, "")
+        block_key = next((v for k, v in _LEGEND_TEXT_MAP.items() if k in txt), None)
+        if block_key:
+            fill.solid()
+            fill.fore_color.rgb = RGBColor.from_string(ROADMAP_BLOCK_COLORS[block_key])
+
     # Bottom cycle bars + vertical cycle separator lines.
     cum = 0.0
     for k in range(cycles):
