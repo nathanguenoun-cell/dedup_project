@@ -374,19 +374,20 @@ RM_ROWS_T, RM_ROWS_H = 1.03, 3.02      # rows band
 RM_MONTH_T = 0.87                      # month header row (above the rows)
 RM_BAR_H = 0.085
 RM_CYC_T, RM_CYC_H = 4.17, 0.20        # bottom cycle bars
-RM_CYC_BG  = ["E8EDF8", "EDF0FA", "F0F2FC"]   # cycle column tints
-RM_CYC_BAR = ["1800FF", "2E46FA", "6B7EC9"]   # bottom cycle bar blues
+RM_CYC_BG  = ["EEF2FA", "F4F6FB", "F8F9FD"]   # cycle column tints (very subtle)
+RM_CYC_BAR = ["1E3A8A", "2563EB", "3B82F6"]   # richer navy-blue cycle bars
+RM_ROW_STRIPE = "F7F8FC"                        # alternating row tint
 
-# Exact per-building-block pastel from the template's "Building Blocks" legend.
+# Vibrant per-building-block colors matching the screenshot legend.
 ROADMAP_BLOCK_COLORS = {
-    "sales hiring & ramp-up":         "BDD3F3",
-    "sales enablement":               "B4C5DF",
-    "sales performance management":   "DBE3F0",
-    "talent management":              "98B5FE",
-    "demand generation":              "B9CDD5",
-    "sales execution":                "EBC5D0",
-    "client relationship":            "C5C3DF",
-    "revenue operations":             "C8C5C5",
+    "sales hiring & ramp-up":         "F4B942",  # warm amber
+    "sales enablement":               "5B9BD5",  # medium blue
+    "sales performance management":   "70BCD4",  # steel teal
+    "talent management":              "8FBC5A",  # fresh green
+    "demand generation":              "9B8DC4",  # soft purple
+    "sales execution":                "D4827A",  # muted coral
+    "client relationship":            "5FAD8C",  # teal green
+    "revenue operations":             "7EB3C8",  # sky blue
 }
 
 
@@ -476,14 +477,16 @@ def render_roadmap_slide(prs, roadmap):
     # Rows: numbered label + a block-coloured bar positioned on the 0..1 timeline.
     n = min(len(items), 25)
     row_h = min(0.155, RM_ROWS_H / n)
-    # Size the label so two tight lines fit inside the row (no overflow into the
-    # neighbouring rows). ~0.9 line-spacing, 0.85 fudge for leading; 72pt = 1in.
     lbl_size = max(4.0, min(RM_LABEL_SIZE, (row_h * 72 / 2) * 0.85))
+    full_w = RM_LABEL_W + RM_PLOT_W + (RM_PLOT_L - RM_LABEL_L)
     for i in range(n):
         it = items[i]
-        cy = RM_ROWS_T + i * row_h + row_h / 2
-        # Wrap long names onto up to 2 lines, vertically centred on the row.
-        _add_text(slide, RM_LABEL_L, cy - row_h / 2, RM_LABEL_W, row_h,
+        ry = RM_ROWS_T + i * row_h
+        cy = ry + row_h / 2
+        # Alternating row stripe across the full width (label + plot area).
+        if i % 2 == 1:
+            _add_rect(slide, RM_LABEL_L, ry, full_w, row_h, RM_ROW_STRIPE)
+        _add_text(slide, RM_LABEL_L, ry, RM_LABEL_W, row_h,
                   f"{i + 1}. {it.get('label', '')}", lbl_size, "19323F",
                   wrap=True, anchor=MSO_ANCHOR.MIDDLE, line_spacing=0.9)
         s = max(0.0, min(1.0, float(it.get('start', 0) or 0)))
