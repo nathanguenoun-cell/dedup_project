@@ -367,23 +367,20 @@ def render_takeaways_on_slide(slide, items):
 # ── Roadmap slide (slide 23 "Gantt view") ───────────────────────────────────
 # Coordinates lifted from the template's Gantt slide (inches).
 ROADMAP_SLIDE = 23
-RM_PLOT_L, RM_PLOT_W = 2.66, 6.23      # timeline plot area
-RM_LABEL_L, RM_LABEL_W = 0.62, 1.98    # left initiative-label column (starts right of the axis title)
-RM_LABEL_SIZE = 6                      # small enough to wrap long names onto 2 lines
-RM_ROWS_T, RM_ROWS_H = 1.03, 3.02      # rows band
-RM_MONTH_T = 0.87                      # month header row (above the rows)
-RM_BAR_H = 0.085
-RM_CYC_T, RM_CYC_H = 4.17, 0.20        # bottom cycle bars
-RM_CYC_BAR = "2A41E5"   # matches --accent in the web app
-
-# Legend layout (mirrors the template's 2-row × 4-col grid).
-RM_LEG_T       = 4.65   # top of "Building Blocks" title
-RM_LEG_ROW_H   = 0.21   # row height
-RM_LEG_COL_W   = 1.11   # column width
-RM_LEG_COLS    = 4      # chips per row
-RM_LEG_SW_W    = 0.22   # swatch width
-RM_LEG_SW_H    = 0.10   # swatch height
-RM_LEG_SW_GAP  = 0.06   # gap between swatch and label
+# All coordinates match the template exactly (10" × 5.62" widescreen slide).
+RM_LABEL_L, RM_LABEL_W = 0.26, 2.27    # label column — matches template text boxes
+RM_PLOT_L,  RM_PLOT_W  = 2.66, 6.23    # Gantt plot area
+RM_ROWS_T,  RM_ROWS_H  = 1.03, 3.09    # row band (top / height)
+RM_MONTH_T, RM_MONTH_H = 0.87, 0.17    # month header strip
+RM_BAR_H   = 0.07                       # Gantt bar height
+RM_CYC_T,  RM_CYC_H   = 4.17, 0.20    # cycle bar strip
+RM_CYC_COLORS = ["2A41E5", "3F5BD4", "6B7EC9"]   # Cycle 1→3 blues (matches screenshot)
+RM_MONTH_BG   = "192240"               # dark-navy month header background
+# Legend: 2-row × 4-col chip grid (colored bg + centered text, like template).
+RM_LEG_T      = 4.65
+RM_LEG_COL_W  = 1.11
+RM_LEG_CHIP_H = 0.17
+RM_LEG_COLS   = 4
 
 
 def _block_color_hex(idx):
@@ -456,69 +453,73 @@ def render_roadmap_slide(prs, roadmap):
     tot = sum(weights) or 1.0
     weights = [w / tot for w in weights]
 
-    # Clear everything in the dynamic plot band AND the legend area.
+    # Clear everything from the month-header band downward (right of rotated label).
     for sh in list(slide.shapes):
-        top = sh.top / 914400
-        left = sh.left / 914400
-        if 0.85 <= top and left >= 0.2:
+        if sh.top / 914400 >= RM_MONTH_T and sh.left / 914400 >= 0.2:
             sh._element.getparent().remove(sh._element)
 
-    # Rebuild legend from scratch (matches web app layout: 2 rows × 4 cols).
-    _add_text(slide, RM_PLOT_L, RM_LEG_T, RM_LEG_COL_W, RM_LEG_ROW_H,
-              "Building Blocks", 7, "19323F", bold=True)
-    for idx, block in enumerate(block_order):
-        col = idx % RM_LEG_COLS
-        row = idx // RM_LEG_COLS
-        x = RM_PLOT_L + col * RM_LEG_COL_W
-        y = RM_LEG_T + RM_LEG_ROW_H + row * RM_LEG_ROW_H
-        color = _block_color_hex(idx)
-        _add_rect(slide, x, y + (RM_LEG_ROW_H - RM_LEG_SW_H) / 2,
-                  RM_LEG_SW_W, RM_LEG_SW_H, color, rounded=True)
-        _add_text(slide, x + RM_LEG_SW_W + RM_LEG_SW_GAP, y,
-                  RM_LEG_COL_W - RM_LEG_SW_W - RM_LEG_SW_GAP, RM_LEG_ROW_H,
-                  block, 6, "19323F", anchor=MSO_ANCHOR.MIDDLE)
-
-    # Bottom cycle bars + vertical cycle separator lines.
-    cum = 0.0
-    for k in range(cycles):
-        x = RM_PLOT_L + cum * RM_PLOT_W
-        w = weights[k] * RM_PLOT_W
-        _add_rect(slide, x, RM_CYC_T, w, RM_CYC_H, RM_CYC_BAR, rounded=True)
-        _add_text(slide, x, RM_CYC_T + 0.012, w, RM_CYC_H, f"Cycle {k + 1}", 7, "FFFFFF",
-                  bold=True, align=PP_ALIGN.CENTER)
-        # Cycle separator line from top of rows to bottom of cycle bar
-        if k > 0:
-            _add_rect(slide, x - 0.005, RM_ROWS_T, 0.010, RM_CYC_T + RM_CYC_H - RM_ROWS_T, "B0B8C8")
-        cum += weights[k]
-
-    # Month axis: labels + thin separator lines.
+    # ── Month header: dark-navy background + white centred labels ──────────────
     month_labels = roadmap.get('monthLabels') or []
     months = max(1, int(roadmap.get('months') or len(month_labels) or 1))
     mw = RM_PLOT_W / months
-    for i in range(months):
+    _add_rect(slide, RM_PLOT_L, RM_MONTH_T, RM_PLOT_W, RM_MONTH_H, RM_MONTH_BG)
+    for i, name in enumerate(month_labels[:months]):
         mx = RM_PLOT_L + i * mw
-        name = month_labels[i] if i < len(month_labels) else ""
-        _add_text(slide, mx, RM_MONTH_T, mw, 0.16, name, 6.5, "42718A",
-                  bold=True, align=PP_ALIGN.CENTER)
+        _add_text(slide, mx, RM_MONTH_T, mw, RM_MONTH_H, name, 7, "FFFFFF",
+                  bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
         if i > 0:
             _add_rect(slide, mx - 0.003, RM_ROWS_T, 0.006, RM_ROWS_H, "E0E4EC")
 
-    # Rows: numbered label + a block-coloured bar positioned on the 0..1 timeline.
+    # ── Gantt rows: label + coloured bar ───────────────────────────────────────
     n = min(len(items), 25)
-    row_h = min(0.155, RM_ROWS_H / n)
-    lbl_size = max(4.0, min(RM_LABEL_SIZE, (row_h * 72 / 2) * 0.85))
+    row_h = RM_ROWS_H / n
+    # Minimum 7 pt so labels stay readable at any item count.
+    lbl_size = max(7.0, min(9.0, row_h * 72 * 0.55))
     for i in range(n):
         it = items[i]
         ry = RM_ROWS_T + i * row_h
         cy = ry + row_h / 2
+        label = f"{i + 1}. {it.get('label', '')}"
         _add_text(slide, RM_LABEL_L, ry, RM_LABEL_W, row_h,
-                  f"{i + 1}. {it.get('label', '')}", lbl_size, "19323F",
-                  wrap=True, anchor=MSO_ANCHOR.MIDDLE, line_spacing=0.9)
+                  label, lbl_size, "19323F",
+                  wrap=False, anchor=MSO_ANCHOR.MIDDLE)
         s = max(0.0, min(1.0, float(it.get('start', 0) or 0)))
         e = max(s, min(1.0, float(it.get('end', s) or s)))
         bx = RM_PLOT_L + s * RM_PLOT_W
         bw = max(0.06, (e - s) * RM_PLOT_W)
-        _add_rect(slide, bx, cy - RM_BAR_H / 2, bw, RM_BAR_H, _block_hex(it.get('block', ''), block_order), rounded=True)
+        bh = max(0.06, row_h * 0.50)
+        _add_rect(slide, bx, cy - bh / 2, bw, bh,
+                  _block_hex(it.get('block', ''), block_order), rounded=True)
+
+    # ── Cycle bars + separator lines ───────────────────────────────────────────
+    cycle_label = roadmap.get('cycleLabels') or {}
+    cum = 0.0
+    for k in range(cycles):
+        x = RM_PLOT_L + cum * RM_PLOT_W
+        w = weights[k] * RM_PLOT_W
+        color = RM_CYC_COLORS[k % len(RM_CYC_COLORS)]
+        _add_rect(slide, x, RM_CYC_T, w, RM_CYC_H, color, rounded=True)
+        label = cycle_label.get(str(k), f"Cycle {k + 1}")
+        _add_text(slide, x, RM_CYC_T, w, RM_CYC_H, label, 7, "FFFFFF",
+                  bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+        if k > 0:
+            _add_rect(slide, x - 0.005, RM_ROWS_T, 0.010,
+                      RM_CYC_T + RM_CYC_H - RM_ROWS_T, "B0B8C8")
+        cum += weights[k]
+
+    # ── Legend: chip-style (coloured bg + centred text), 2 rows × 4 cols ──────
+    _add_text(slide, RM_PLOT_L, RM_LEG_T, RM_LEG_COL_W * RM_LEG_COLS, 0.15,
+              "Building Blocks", 8, "19323F", bold=True)
+    for idx, block in enumerate(block_order):
+        col = idx % RM_LEG_COLS
+        row = idx // RM_LEG_COLS
+        x = RM_PLOT_L + col * RM_LEG_COL_W
+        y = RM_LEG_T + 0.17 + row * (RM_LEG_CHIP_H + 0.04)
+        color = _block_color_hex(idx)
+        chip = _add_rect(slide, x, y, RM_LEG_COL_W - 0.06, RM_LEG_CHIP_H, color, rounded=True)
+        _add_text(slide, x, y, RM_LEG_COL_W - 0.06, RM_LEG_CHIP_H,
+                  block, 6.5, "19323F",
+                  align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
 
 
 def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, roadmap=None, takeaways=None):
