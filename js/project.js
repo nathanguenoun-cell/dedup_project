@@ -1238,10 +1238,6 @@ function renderDeck() {
         </label>
         <div class="deck-row">
           <label class="deck-field">
-            <span>Segment <em>(optional)</em></span>
-            <input id="deckSegment" type="text" placeholder="e.g. Enterprise">
-          </label>
-          <label class="deck-field">
             <span>Date <em>(optional)</em></span>
             <input id="deckDate" type="text" placeholder="e.g. June 2026">
           </label>
@@ -1327,7 +1323,7 @@ async function generateDeck() {
       credentials: 'same-origin',
       body: JSON.stringify({
         client,
-        segment: document.getElementById('deckSegment').value.trim(),
+        segment: null,
         date: document.getElementById('deckDate').value.trim(),
         xlsx_b64: _deckXlsx.b64,
         roadmap: buildRoadmapPayload(),
