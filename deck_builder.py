@@ -384,7 +384,7 @@ RM_LEG_GAP    = 0.05   # gap between chips
 # chip width computed at render time: (RM_PLOT_W - gaps) / RM_LEG_COLS
 
 # Approx Poppins char width at 1pt in inches (used for label truncation).
-_POPPINS_CHAR_W = 0.0049
+_POPPINS_CHAR_W = 0.0060
 
 
 ROADMAP_BLOCK_COLORS = {
