@@ -376,11 +376,15 @@ RM_BAR_H   = 0.07                       # Gantt bar height
 RM_CYC_T,  RM_CYC_H   = 4.17, 0.20    # cycle bar strip
 RM_CYC_COLORS = ["2A41E5", "3F5BD4", "6B7EC9"]   # Cycle 1→3 blues (matches screenshot)
 RM_MONTH_BG   = "192240"               # dark-navy month header background
-# Legend: 2-row × 4-col chip grid (colored bg + centered text, like template).
+# Legend: 2-row × 4-col chip grid — chips span the full plot width.
 RM_LEG_T      = 4.65
-RM_LEG_COL_W  = 1.11
-RM_LEG_CHIP_H = 0.17
 RM_LEG_COLS   = 4
+RM_LEG_CHIP_H = 0.17
+RM_LEG_GAP    = 0.05   # gap between chips
+# chip width computed at render time: (RM_PLOT_W - gaps) / RM_LEG_COLS
+
+# Approx Poppins char width at 1pt in inches (used for label truncation).
+_POPPINS_CHAR_W = 0.0049
 
 
 ROADMAP_BLOCK_COLORS = {
@@ -393,6 +397,14 @@ ROADMAP_BLOCK_COLORS = {
     "client relationship":            "C5C3DF",
     "revenue operations":             "C8C5C5",
 }
+
+
+def _truncate(text, max_width_in, font_pt):
+    """Truncate text with '…' so it fits within max_width_in at font_pt."""
+    max_chars = int(max_width_in / (_POPPINS_CHAR_W * font_pt))
+    if len(text) <= max_chars:
+        return text
+    return text[:max(1, max_chars - 1)] + "…"
 
 
 def _block_color_hex(block):
@@ -493,10 +505,10 @@ def render_roadmap_slide(prs, roadmap):
         it = items[i]
         ry = RM_ROWS_T + i * row_h
         cy = ry + row_h / 2
-        label = f"{i + 1}. {it.get('label', '')}"
+        label = _truncate(f"{i + 1}. {it.get('label', '')}", RM_LABEL_W, lbl_size)
         _add_text(slide, RM_LABEL_L, ry, RM_LABEL_W, row_h,
                   label, lbl_size, "19323F",
-                  wrap=False, anchor=MSO_ANCHOR.MIDDLE, shrink=True)
+                  wrap=False, anchor=MSO_ANCHOR.MIDDLE)
         s = max(0.0, min(1.0, float(it.get('start', 0) or 0)))
         e = max(s, min(1.0, float(it.get('end', s) or s)))
         bx = RM_PLOT_L + s * RM_PLOT_W
@@ -522,18 +534,20 @@ def render_roadmap_slide(prs, roadmap):
         cum += weights[k]
 
     # ── Legend: chip-style (coloured bg + centred text), 2 rows × 4 cols ──────
-    _add_text(slide, RM_PLOT_L, RM_LEG_T, RM_LEG_COL_W * RM_LEG_COLS, 0.15,
+    chip_w = (RM_PLOT_W - RM_LEG_GAP * (RM_LEG_COLS - 1)) / RM_LEG_COLS
+    _add_text(slide, RM_PLOT_L, RM_LEG_T, RM_PLOT_W, 0.15,
               "Building Blocks", 8, "19323F", bold=True)
     for idx, block in enumerate(block_order):
         col = idx % RM_LEG_COLS
         row = idx // RM_LEG_COLS
-        x = RM_PLOT_L + col * RM_LEG_COL_W
+        x = RM_PLOT_L + col * (chip_w + RM_LEG_GAP)
         y = RM_LEG_T + 0.17 + row * (RM_LEG_CHIP_H + 0.04)
         color = _block_color_hex(block)
-        chip = _add_rect(slide, x, y, RM_LEG_COL_W - 0.06, RM_LEG_CHIP_H, color, rounded=True)
-        _add_text(slide, x, y, RM_LEG_COL_W - 0.06, RM_LEG_CHIP_H,
-                  block, 6.5, "19323F",
-                  align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE, shrink=True)
+        _add_rect(slide, x, y, chip_w, RM_LEG_CHIP_H, color, rounded=True)
+        label = _truncate(block, chip_w, 6.5)
+        _add_text(slide, x, y, chip_w, RM_LEG_CHIP_H,
+                  label, 6.5, "19323F",
+                  align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
 
 
 def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, roadmap=None, takeaways=None):
