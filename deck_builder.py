@@ -506,13 +506,15 @@ def render_roadmap_slide(prs, roadmap):
     n = min(len(items), 25)
     row_h = RM_ROWS_H / n
     inner_h = row_h - 2 * RM_ROW_PAD   # drawable area inside each row
-    lbl_size = max(7.0, min(9.0, inner_h * 72 * 0.75))
+    lbl_size = max(5.0, min(7.0, inner_h * 72 * 0.75))
+    lbl_l = 0.10                        # extend label column to left edge
+    lbl_w = sep_x - lbl_l - 0.05       # actual text box width up to separator
     for i in range(n):
         it = items[i]
-        ry = RM_ROWS_T + i * row_h + RM_ROW_PAD   # top of drawable area
+        ry = RM_ROWS_T + i * row_h + RM_ROW_PAD
         cy = ry + inner_h / 2
-        label = _truncate(it.get('label', ''), RM_LABEL_W, lbl_size)
-        _add_text(slide, RM_LABEL_L, ry, sep_x - RM_LABEL_L - 0.05, inner_h,
+        label = _truncate(it.get('label', ''), lbl_w, lbl_size)
+        _add_text(slide, lbl_l, ry, lbl_w, inner_h,
                   label, lbl_size, "19323F",
                   align=PP_ALIGN.RIGHT, wrap=False, anchor=MSO_ANCHOR.MIDDLE)
         s = max(0.0, min(1.0, float(it.get('start', 0) or 0)))
