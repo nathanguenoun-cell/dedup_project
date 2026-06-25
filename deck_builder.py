@@ -368,8 +368,8 @@ def render_takeaways_on_slide(slide, items):
 # Coordinates lifted from the template's Gantt slide (inches).
 ROADMAP_SLIDE = 23
 # All coordinates match the template exactly (10" × 5.62" widescreen slide).
-RM_LABEL_L, RM_LABEL_W = 0.26, 2.27    # label column — matches template text boxes
-RM_PLOT_L,  RM_PLOT_W  = 2.66, 6.23    # Gantt plot area
+RM_LABEL_L, RM_LABEL_W = 0.26, 3.27    # label column — wider to avoid Gantt overlap
+RM_PLOT_L,  RM_PLOT_W  = 3.66, 6.23    # Gantt plot area (shifted right, same width)
 RM_ROWS_T,  RM_ROWS_H  = 1.03, 3.09    # row band (top / height)
 RM_MONTH_T, RM_MONTH_H = 0.87, 0.17    # month header strip
 RM_BAR_H   = 0.07                       # Gantt bar height
