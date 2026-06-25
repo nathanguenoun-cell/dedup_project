@@ -384,7 +384,9 @@ RM_LEG_GAP    = 0.05   # gap between chips
 # chip width computed at render time: (RM_PLOT_W - gaps) / RM_LEG_COLS
 
 # Approx Poppins char width at 1pt in inches (used for label truncation).
-_POPPINS_CHAR_W = 0.0060
+_POPPINS_CHAR_W = 0.0068
+# Vertical padding inside each Gantt row (breathing space between programs).
+RM_ROW_PAD = 0.010
 
 
 ROADMAP_BLOCK_COLORS = {
@@ -499,21 +501,21 @@ def render_roadmap_slide(prs, roadmap):
     # ── Gantt rows: label + coloured bar ───────────────────────────────────────
     n = min(len(items), 25)
     row_h = RM_ROWS_H / n
-    # Minimum 7 pt so labels stay readable at any item count.
-    lbl_size = max(7.0, min(9.0, row_h * 72 * 0.55))
+    inner_h = row_h - 2 * RM_ROW_PAD   # drawable area inside each row
+    lbl_size = max(7.0, min(9.0, inner_h * 72 * 0.75))
     for i in range(n):
         it = items[i]
-        ry = RM_ROWS_T + i * row_h
-        cy = ry + row_h / 2
-        label = _truncate(f"{i + 1}. {it.get('label', '')}", RM_LABEL_W, lbl_size)
-        _add_text(slide, RM_LABEL_L, ry, RM_LABEL_W, row_h,
+        ry = RM_ROWS_T + i * row_h + RM_ROW_PAD   # top of drawable area
+        cy = ry + inner_h / 2
+        label = _truncate(it.get('label', ''), RM_LABEL_W, lbl_size)
+        _add_text(slide, RM_LABEL_L, ry, RM_LABEL_W, inner_h,
                   label, lbl_size, "19323F",
                   wrap=False, anchor=MSO_ANCHOR.MIDDLE)
         s = max(0.0, min(1.0, float(it.get('start', 0) or 0)))
         e = max(s, min(1.0, float(it.get('end', s) or s)))
         bx = RM_PLOT_L + s * RM_PLOT_W
         bw = max(0.06, (e - s) * RM_PLOT_W)
-        bh = max(0.06, row_h * 0.50)
+        bh = max(0.05, inner_h * 0.60)
         _add_rect(slide, bx, cy - bh / 2, bw, bh,
                   _block_hex(it.get('block', ''), block_order), rounded=True)
 
