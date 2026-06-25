@@ -498,7 +498,11 @@ def render_roadmap_slide(prs, roadmap):
         if i > 0:
             _add_rect(slide, mx - 0.003, RM_ROWS_T, 0.006, RM_ROWS_H, "E0E4EC")
 
-    # ── Gantt rows: label + coloured bar ───────────────────────────────────────
+    # ── Vertical separator between label column and Gantt ─────────────────────
+    sep_x = RM_PLOT_L - 0.08
+    _add_rect(slide, sep_x, RM_ROWS_T, 0.006, RM_ROWS_H, "D0D5DD")
+
+    # ── Gantt rows: label (right-aligned) + coloured bar ──────────────────────
     n = min(len(items), 25)
     row_h = RM_ROWS_H / n
     inner_h = row_h - 2 * RM_ROW_PAD   # drawable area inside each row
@@ -508,9 +512,9 @@ def render_roadmap_slide(prs, roadmap):
         ry = RM_ROWS_T + i * row_h + RM_ROW_PAD   # top of drawable area
         cy = ry + inner_h / 2
         label = _truncate(it.get('label', ''), RM_LABEL_W, lbl_size)
-        _add_text(slide, RM_LABEL_L, ry, RM_LABEL_W, inner_h,
+        _add_text(slide, RM_LABEL_L, ry, sep_x - RM_LABEL_L - 0.05, inner_h,
                   label, lbl_size, "19323F",
-                  wrap=False, anchor=MSO_ANCHOR.MIDDLE)
+                  align=PP_ALIGN.RIGHT, wrap=False, anchor=MSO_ANCHOR.MIDDLE)
         s = max(0.0, min(1.0, float(it.get('start', 0) or 0)))
         e = max(s, min(1.0, float(it.get('end', s) or s)))
         bx = RM_PLOT_L + s * RM_PLOT_W
