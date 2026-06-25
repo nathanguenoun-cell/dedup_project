@@ -18,7 +18,7 @@ from lxml import etree
 from pptx import Presentation
 from pptx.util import Pt
 from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR, MSO_AUTO_SIZE
 from pptx.dml.color import RGBColor
 
 # ── Axis constants (exact EMU match to the template) ─────────────────────────
@@ -426,11 +426,11 @@ def _add_rect(slide, l, t, w, h, fill_hex, rounded=False):
 
 
 def _add_text(slide, l, t, w, h, text, size, color_hex, bold=False, align=PP_ALIGN.LEFT,
-              wrap=False, anchor=None, line_spacing=None):
+              wrap=False, anchor=None, line_spacing=None, shrink=False):
     tb = slide.shapes.add_textbox(to_emu(l), to_emu(t), to_emu(w), to_emu(h))
     tf = tb.text_frame
     tf.word_wrap = wrap
-    tf.auto_size = None
+    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE if shrink else None
     tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
     if anchor is not None:
         tf.vertical_anchor = anchor
@@ -496,7 +496,7 @@ def render_roadmap_slide(prs, roadmap):
         label = f"{i + 1}. {it.get('label', '')}"
         _add_text(slide, RM_LABEL_L, ry, RM_LABEL_W, row_h,
                   label, lbl_size, "19323F",
-                  wrap=False, anchor=MSO_ANCHOR.MIDDLE)
+                  wrap=False, anchor=MSO_ANCHOR.MIDDLE, shrink=True)
         s = max(0.0, min(1.0, float(it.get('start', 0) or 0)))
         e = max(s, min(1.0, float(it.get('end', s) or s)))
         bx = RM_PLOT_L + s * RM_PLOT_W
@@ -533,7 +533,7 @@ def render_roadmap_slide(prs, roadmap):
         chip = _add_rect(slide, x, y, RM_LEG_COL_W - 0.06, RM_LEG_CHIP_H, color, rounded=True)
         _add_text(slide, x, y, RM_LEG_COL_W - 0.06, RM_LEG_CHIP_H,
                   block, 6.5, "19323F",
-                  align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+                  align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE, shrink=True)
 
 
 def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, roadmap=None, takeaways=None):
