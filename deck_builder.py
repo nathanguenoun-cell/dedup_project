@@ -383,21 +383,35 @@ RM_LEG_CHIP_H = 0.17
 RM_LEG_COLS   = 4
 
 
-def _block_color_hex(idx):
-    """Replicate JS blockColor(block).fill = hsl(idx*47 % 360, 58%, 74%)."""
-    import colorsys
-    hue = (idx * 47) % 360
-    r, g, b = colorsys.hls_to_rgb(hue / 360.0, 0.74, 0.58)
-    return f"{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"
+ROADMAP_BLOCK_COLORS = {
+    "sales hiring & ramp-up":         "BDD3F3",
+    "sales enablement":               "B4C5DF",
+    "sales performance management":   "DBE3F0",
+    "talent management":              "98B5FE",
+    "demand generation":              "B9CDD5",
+    "sales execution":                "EBC5D0",
+    "client relationship":            "C5C3DF",
+    "revenue operations":             "C8C5C5",
+}
 
 
-def _block_hex(block, block_order):
-    clean = re.sub(r'^\s*\d+[.)]\s*', '', block or '').strip()
-    try:
-        idx = block_order.index(clean)
-    except ValueError:
-        idx = 0
-    return _block_color_hex(idx)
+def _block_color_hex(block):
+    """Return the fixed hex color for a building block name (fuzzy match)."""
+    clean = re.sub(r'^\s*\d+[.)]\s*', '', block or '').strip().lower()
+    # Exact match
+    if clean in ROADMAP_BLOCK_COLORS:
+        return ROADMAP_BLOCK_COLORS[clean]
+    # Word-subset fallback (handles "Sales Hiring & New Hire ramp-Up" → key)
+    clean_words = set(re.sub(r'[^a-z0-9 ]', ' ', clean).split())
+    for key, hex_val in ROADMAP_BLOCK_COLORS.items():
+        key_words = set(re.sub(r'[^a-z0-9 ]', ' ', key).split())
+        if clean_words <= key_words or key_words <= clean_words:
+            return hex_val
+    return "C8C5C5"
+
+
+def _block_hex(block, block_order=None):
+    return _block_color_hex(block)
 
 
 def _add_rect(slide, l, t, w, h, fill_hex, rounded=False):
@@ -515,7 +529,7 @@ def render_roadmap_slide(prs, roadmap):
         row = idx // RM_LEG_COLS
         x = RM_PLOT_L + col * RM_LEG_COL_W
         y = RM_LEG_T + 0.17 + row * (RM_LEG_CHIP_H + 0.04)
-        color = _block_color_hex(idx)
+        color = _block_color_hex(block)
         chip = _add_rect(slide, x, y, RM_LEG_COL_W - 0.06, RM_LEG_CHIP_H, color, rounded=True)
         _add_text(slide, x, y, RM_LEG_COL_W - 0.06, RM_LEG_CHIP_H,
                   block, 6.5, "19323F",

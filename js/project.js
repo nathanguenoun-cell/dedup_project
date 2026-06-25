@@ -554,14 +554,38 @@ function confirmTakeaways() {
 // takeaways are marked but selection is independent.
 
 // Stable per-block colour from its index — spread hues, no palette to maintain.
+// Fixed colors per building block — must stay in sync with ROADMAP_BLOCK_COLORS in deck_builder.py.
+const BLOCK_FILL_COLORS = {
+  "sales hiring & ramp-up":         "#BDD3F3",
+  "sales enablement":               "#B4C5DF",
+  "sales performance management":   "#DBE3F0",
+  "talent management":              "#98B5FE",
+  "demand generation":              "#B9CDD5",
+  "sales execution":                "#EBC5D0",
+  "client relationship":            "#C5C3DF",
+  "revenue operations":             "#C8C5C5",
+};
+
+function _normBlock(b) {
+  return (b || '').replace(/^\d+[.)]\s*/, '').trim().toLowerCase();
+}
+
+function _blockFill(block) {
+  const norm = _normBlock(block);
+  if (BLOCK_FILL_COLORS[norm]) return BLOCK_FILL_COLORS[norm];
+  // Word-subset fallback (e.g. "Sales Hiring & New Hire ramp-Up" → key)
+  const normWords = new Set(norm.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean));
+  for (const [key, hex] of Object.entries(BLOCK_FILL_COLORS)) {
+    const keyWords = new Set(key.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean));
+    const isSubset = (a, b) => [...a].every(w => b.has(w));
+    if (isSubset(normWords, keyWords) || isSubset(keyWords, normWords)) return hex;
+  }
+  return "#C8C5C5";
+}
+
 function blockColor(block) {
-  const hue = (Math.max(0, BLOCKS.indexOf(block)) * 47) % 360;
-  return {
-    bar:  `hsl(${hue} 65% 48%)`,
-    bg:   `hsl(${hue} 70% 95%)`,
-    text: `hsl(${hue} 55% 32%)`,
-    fill: `hsl(${hue} 58% 74%)`,   // soft pastel for Gantt bars
-  };
+  const fill = _blockFill(block);
+  return { bar: fill, bg: fill, text: '#19323F', fill };
 }
 
 // Selected key takeaways (still kept), in block order, ready to choose from.
