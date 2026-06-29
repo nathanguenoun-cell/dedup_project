@@ -10,8 +10,19 @@ let BLOCK_COUNTS = {};
 
 let PROJECT = { id: null, name: '', status: 'draft', isOwner: false, members: [] };
 
+// Project pipeline modules shown in the header flow. 'dedup' is the live module;
+// the rest are scaffolded placeholders that future features will fill in.
+const STAGES = [
+  { key: 'dedup',     label: 'Deduplication' },
+  { key: 'takeaways', label: 'Key Takeaways' },
+  { key: 'roadmap',   label: 'Roadmap' },
+  { key: 'deck',      label: 'Final Deck' },
+];
+const STAGE_BUILT = { dedup: true, takeaways: true, roadmap: true, deck: true };
+
 let state = {
-  tab: 'issues',          // 'issues' | 'review' | 'result'
+  stage: 'dedup',         // which pipeline module is open (see STAGES)
+  tab: 'issues',          // 'issues' | 'review' | 'result' (within the Deduplication module)
   currentBlock: 'all',
   groups: [],
   decisions: {},
@@ -22,7 +33,34 @@ let state = {
   filterStatus: 'all',
   fileName: '',
   failedBlocks: [],       // blocks whose Stage-2 call failed (e.g. 502) — retryable
+  // Key Takeaways module: ids of deduplicated takeaways kept for the next step,
+  // and the subset of those highlighted. Sets for O(1) toggles.
+  takeawaysSelected: new Set(),
+  takeawaysHighlighted: new Set(),
+  takeawaysConfirmed: false,   // user explicitly confirmed the selection for Roadmap
+  tkBlockIdx: 0,               // which building-block tab is open in Key Takeaways
+  // Roadmap module: subset of the selected key takeaways picked for the roadmap.
+  roadmapSelected: new Set(),
+  roadmapConfirmed: false,
+  roadmapFilter: 'all',        // building-block filter in the Roadmap selection
+  roadmapPhase: 'select',      // 'select' (pick items) | 'build' (Gantt editor)
+  // Gantt plan: cycles = number of columns; items[id] = {start, span} in cycle units.
+  roadmapPlan: { cycles: 3, months: 9, startMonth: null, items: {} },
 };
+
+// Roadmap Gantt limits. Bars and cycle dividers live on a 0..1 timeline.
+const ROADMAP_CYCLES_MAX = 8;
+const ROADMAP_SNAP = 0.01;        // fine snap (1% of the timeline)
+const ROADMAP_CYCLE_MIN = 0.05;   // a cycle can't shrink below 5% of the timeline
+const ROADMAP_MONTHS_DEFAULT = 9;
+const ROADMAP_MONTHS_MAX = 24;
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Max key takeaways a building block can carry to the next step.
+const TAKEAWAYS_PER_BLOCK = 10;
+// Max items that can be carried into the roadmap.
+const ROADMAP_MAX = 25;
 
 // Max simultaneous /api/messages calls. Firing one per block all at once
 // overloads the proxy on a small instance → 502s. 3 keeps it fast but safe.
@@ -80,9 +118,29 @@ async function openProject(projectId) {
     state.groups = d.groups || [];
     state.decisions = d.decisions || {};
     state.failedBlocks = d.failed_blocks || [];
+    const tk = d.takeaways || {};
+    state.takeawaysSelected = new Set(tk.selected || []);
+    state.takeawaysHighlighted = new Set(tk.highlighted || []);
+    state.takeawaysConfirmed = !!tk.confirmed;
+    const rm = d.roadmap || {};
+    state.roadmapSelected = new Set(rm.selected || []);
+    state.roadmapConfirmed = !!rm.confirmed;
+    state.roadmapPhase = ['build', 'rephrase'].includes(rm.phase) ? rm.phase : 'select';
+    const p = rm.plan || {};
+    state.roadmapPlan = {
+      cycles: Math.min(ROADMAP_CYCLES_MAX, Math.max(1, p.cycles || 3)),
+      weights: Array.isArray(p.weights) ? p.weights : null,
+      order: Array.isArray(p.order) ? p.order : [],
+      items: p.items || {},
+      labels: p.labels || {},
+      months: Math.min(ROADMAP_MONTHS_MAX, Math.max(1, p.months || ROADMAP_MONTHS_DEFAULT)),
+      startMonth: p.startMonth || null,
+    };
     migrateDecisions();              // upgrade any legacy decision shapes
     recomputeRemoved();              // derive removed set from decisions (consistent)
     state.fileName = d.file_name || '';
+    state.stage = 'dedup';
+    state.tkBlockIdx = 0;
     state.currentBlock = 'all';
     state.currentGroupIdx = 0;
     draft = { gi: null, removed: new Set() };
@@ -113,6 +171,17 @@ function saveProjectData(immediate) {
     decisions: state.decisions,
     removed_ids: [...state.removedIds],
     failed_blocks: state.failedBlocks || [],
+    takeaways: {
+      selected: [...state.takeawaysSelected],
+      highlighted: [...state.takeawaysHighlighted],
+      confirmed: state.takeawaysConfirmed,
+    },
+    roadmap: {
+      selected: [...state.roadmapSelected],
+      confirmed: state.roadmapConfirmed,
+      phase: state.roadmapPhase,
+      plan: state.roadmapPlan,
+    },
     status: PROJECT.status,
   };
   const doSave = () => api.saveData(PROJECT.id, payload).catch(e => console.warn('save failed', e));
@@ -158,6 +227,7 @@ function renderProjectShell() {
           <button class="nav-btn" onclick="goDashboard()">Dashboard</button>
         </div>
       </div>
+      <div class="flow-nav" id="flowNav"></div>
       <div class="project-tabs" id="projectTabs"></div>
     </div>
     <div class="main">
@@ -168,7 +238,1119 @@ function renderProjectShell() {
       </div>
     </div>`;
   updateHeader();
+  renderFlow();
   renderTabs();
+}
+
+// ─── Module flow (project pipeline stepper) ──────────────────────
+function renderFlow() {
+  const el = document.getElementById('flowNav');
+  if (!el) return;
+  const activeIdx = STAGES.findIndex(s => s.key === state.stage);
+  el.innerHTML = STAGES.map((s, i) => {
+    const built = STAGE_BUILT[s.key];
+    const cls = s.key === state.stage ? 'active'
+              : (i < activeIdx ? 'done' : 'upcoming');
+    const soon = built ? '' : `<span class="flow-soon">soon</span>`;
+    const step = `
+      <button class="flow-step ${cls}" onclick="switchStage('${s.key}')" title="${escapeHtml(s.label)}">
+        <span class="flow-idx">${i + 1}</span>${escapeHtml(s.label)}${soon}
+      </button>`;
+    const sep = i < STAGES.length - 1 ? `<span class="flow-sep">›</span>` : '';
+    return step + sep;
+  }).join('');
+}
+
+function switchStage(stage) {
+  if (state.stage === stage) return;
+  state.stage = stage;
+  renderFlow();
+  // The dedup sub-tabs only belong to the Deduplication module.
+  const tabs = document.getElementById('projectTabs');
+  if (tabs) tabs.style.display = stage === 'dedup' ? '' : 'none';
+  renderStage();
+}
+
+// Dispatch the content area based on the active pipeline module.
+function renderStage() {
+  const sidebar = document.getElementById('projectSidebar');
+  document.getElementById('actionRow').style.display = 'none';
+  if (state.stage === 'dedup') {
+    if (sidebar) sidebar.style.display = '';
+    renderTab();
+    return;
+  }
+  if (state.stage === 'takeaways') {
+    if (sidebar) sidebar.style.display = 'none';
+    renderKeyTakeaways();
+    return;
+  }
+  if (state.stage === 'roadmap') {
+    if (sidebar) sidebar.style.display = 'none';
+    renderRoadmap();
+    return;
+  }
+  if (state.stage === 'deck') {
+    if (sidebar) sidebar.style.display = 'none';
+    renderDeck();
+    return;
+  }
+  // Future modules: scaffolded placeholder until their feature lands.
+  if (sidebar) sidebar.style.display = 'none';
+  renderStagePlaceholder();
+}
+
+function renderStagePlaceholder() {
+  const meta = STAGES.find(s => s.key === state.stage);
+  const blurb = {
+    takeaways: 'Auto-summarised insights from the deduplicated issues — the headline findings per building block.',
+    roadmap:   'Turn the prioritised findings into a sequenced action plan with owners and timeframes.',
+    deck:      'Assemble takeaways and roadmap into a client-ready presentation, exportable in one click.',
+  }[state.stage] || 'This module is coming soon.';
+  document.getElementById('mainPanel').innerHTML = `
+    <div class="stage-placeholder">
+      <div class="sp-icon">🚧</div>
+      <h2>${escapeHtml(meta ? meta.label : 'Coming soon')}</h2>
+      <p>${escapeHtml(blurb)}</p>
+      <div class="sp-soon">In development</div>
+    </div>`;
+}
+
+// ─── Key Takeaways module ────────────────────────────────────────
+// Candidates are the deduplicated (kept) takeaways grouped by building block.
+// Per block the user selects up to TAKEAWAYS_PER_BLOCK to carry forward, and may
+// highlight any of the selected ones.
+
+let _tkBlocks = [];   // building-block names (with kept items), stable index for handlers
+
+function keptTakeawaysByBlock() {
+  const out = {};
+  RAW_DATA.forEach(d => {
+    if (state.removedIds.has(d.id)) return;   // dropped in deduplication
+    (out[d.block] = out[d.block] || []).push(d);
+  });
+  return out;
+}
+
+function renderKeyTakeaways() {
+  const byBlock = keptTakeawaysByBlock();
+  _tkBlocks = BLOCKS.filter(b => byBlock[b] && byBlock[b].length);
+  const panel = document.getElementById('mainPanel');
+  const actionRow = document.getElementById('actionRow');
+
+  if (!_tkBlocks.length) {
+    actionRow.style.display = 'none';
+    panel.innerHTML = `
+      <div class="stage-placeholder">
+        <div class="sp-icon">📋</div>
+        <h2>No takeaways yet</h2>
+        <p>Import data and run the Deduplication step first — the surviving
+           takeaways will appear here, grouped by building block, ready to select.</p>
+      </div>`;
+    return;
+  }
+
+  // Sticky confirm bar — the explicit "carry forward to Roadmap" action.
+  actionRow.innerHTML = `
+    <button class="btn-primary" id="tkConfirmBtn" onclick="confirmTakeaways()">
+      Confirm selections → Roadmap
+    </button>
+    <span class="action-hint" id="tkActionHint"></span>`;
+  actionRow.style.display = 'flex';
+
+  if (state.tkBlockIdx >= _tkBlocks.length) state.tkBlockIdx = 0;
+
+  panel.innerHTML = `
+    <div class="tk-wrap">
+      <div class="tk-head">
+        <div>
+          <h2 class="tk-title">Key Takeaways</h2>
+          <p class="tk-sub">Pick a building block, select up to ${TAKEAWAYS_PER_BLOCK} takeaways to
+             carry forward, and star the ones that matter most.</p>
+        </div>
+        <div class="tk-summary" id="tkSummary"></div>
+      </div>
+      <div class="tk-tabs" id="tkTabs">${tkTabsHtml()}</div>
+      <div class="tk-panel" id="tkPanel">${tkPanelHtml()}</div>
+    </div>`;
+  updateTakeawaySummary();
+}
+
+// One tab per building block, with a live "selected / cap" badge.
+function tkTabsHtml() {
+  const byBlock = keptTakeawaysByBlock();
+  return _tkBlocks.map((b, i) => {
+    const sel = (byBlock[b] || []).filter(d => state.takeawaysSelected.has(d.id)).length;
+    const full = sel >= TAKEAWAYS_PER_BLOCK;
+    return `
+      <button class="tk-tab ${i === state.tkBlockIdx ? 'active' : ''}" onclick="switchTkBlock(${i})">
+        <span class="tk-tab-name">${escapeHtml(b)}</span>
+        <span class="tk-tab-badge ${full ? 'full' : ''} ${sel ? 'has' : ''}">${sel}/${TAKEAWAYS_PER_BLOCK}</span>
+      </button>`;
+  }).join('');
+}
+
+// The active block's takeaway list.
+function tkPanelHtml() {
+  const block = _tkBlocks[state.tkBlockIdx];
+  const items = (keptTakeawaysByBlock()[block] || []);
+  const sel = items.filter(d => state.takeawaysSelected.has(d.id)).length;
+  const hi = items.filter(d => state.takeawaysHighlighted.has(d.id)).length;
+  const full = sel >= TAKEAWAYS_PER_BLOCK;
+  // Float highlighted to the very top, then plain-selected, keeping each group's
+  // original order. rank 0 = highlighted, 1 = selected, 2 = neither.
+  const rank = d => state.takeawaysHighlighted.has(d.id) ? 0
+                  : state.takeawaysSelected.has(d.id) ? 1 : 2;
+  const ordered = items
+    .map((d, i) => ({ d, i }))
+    .sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i)
+    .map(x => x.d);
+  return `
+    <div class="tk-block-bar">
+      <span class="tk-block-name">${escapeHtml(block)}</span>
+      <span class="tk-block-count ${full ? 'full' : ''}">
+        ${sel} selected in ${items.length} Key Takeaway${items.length === 1 ? '' : 's'}
+        · ${sel} / ${TAKEAWAYS_PER_BLOCK} cap${hi ? ` · ${hi} highlighted` : ''}
+      </span>
+    </div>
+    <div class="tk-list">
+      ${ordered.map(d => renderTakeawayRow(d, full)).join('')}
+    </div>`;
+}
+
+function editIssueField(id, field) {
+  const el = document.querySelector(`[data-edit="${id}-${field}"]`);
+  if (!el || el.querySelector('textarea')) return;
+  const d = RAW_DATA.find(x => x.id === id);
+  if (!d) return;
+  const current = (d[field] || '').trim();
+  const ta = document.createElement('textarea');
+  ta.className = 'field-edit-input';
+  ta.value = current;
+  ta.rows = 2;
+  el.innerHTML = '';
+  el.appendChild(ta);
+  ta.focus(); ta.select();
+  const restore = v => { el.innerHTML = v ? escapeHtml(v) : '<span style="color:var(--border)">—</span>'; };
+  const commit = () => { d[field] = ta.value.trim(); restore(d[field]); saveProjectData(); };
+  ta.addEventListener('blur', commit);
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ta.blur(); }
+    if (e.key === 'Escape') { restore(current); }
+  });
+}
+
+function renderTakeawayRow(d, blockFull) {
+  const selected = state.takeawaysSelected.has(d.id);
+  const highlighted = state.takeawaysHighlighted.has(d.id);
+  const locked = !selected && blockFull;   // block is full and this row isn't in it
+  const initiative = (d.initiative || '').trim();
+  return `
+    <div class="tk-item ${selected ? 'selected' : ''} ${highlighted ? 'highlighted' : ''}">
+      <button class="tk-check ${locked ? 'locked' : ''}" ${locked ? 'disabled' : ''}
+              onclick="toggleTakeaway(${d.id})"
+              title="${selected ? 'Remove from selection' : (locked ? 'Block limit reached' : 'Select')}">
+        ${selected ? '✓' : ''}
+      </button>
+      <div class="tk-body">
+        <div class="tk-field">
+          <div class="tk-field-hd"><span class="tk-label">Key Takeaway</span><button class="field-edit-btn" onclick="editIssueField(${d.id},'takeaway')" title="Edit">✎</button></div>
+          <div class="tk-text" data-edit="${d.id}-takeaway">${escapeHtml(d.takeaway)}</div>
+        </div>
+        <div class="tk-field">
+          ${(() => { const c = blockColor(d.block); return `<span class="tk-block-tag" style="background:${c.bg};color:${c.text}">${escapeHtml(d.block.replace(/^\d+\.\s*/,''))}</span>`; })()}
+        </div>
+        <div class="tk-field">
+          <div class="tk-field-hd"><span class="tk-label">Initiative</span><button class="field-edit-btn" onclick="editIssueField(${d.id},'initiative')" title="Edit">✎</button></div>
+          <div class="tk-init ${initiative ? '' : 'empty'}" data-edit="${d.id}-initiative">${initiative ? escapeHtml(initiative) : '—'}</div>
+        </div>
+      </div>
+      <button class="tk-star ${highlighted ? 'on' : ''} ${locked ? 'locked' : ''}" ${locked ? 'disabled' : ''}
+              onclick="toggleHighlight(${d.id})"
+              title="${highlighted ? 'Remove highlight' : (locked ? 'Block limit reached' : 'Highlight')}">★</button>
+    </div>`;
+}
+
+function switchTkBlock(idx) {
+  state.tkBlockIdx = idx;
+  refreshTk();
+}
+
+function toggleTakeaway(id) {
+  state.takeawaysConfirmed = false;   // selection changed → must re-confirm
+  if (state.takeawaysSelected.has(id)) {
+    state.takeawaysSelected.delete(id);
+    state.takeawaysHighlighted.delete(id);    // highlight only applies to selected
+  } else if (!addTakeawayWithinCap(id)) {
+    return;                                    // block full → no-op
+  }
+  refreshTk();
+  saveProjectData();
+}
+
+// Star always works: highlighting an unselected takeaway also keeps it (if room).
+function toggleHighlight(id) {
+  if (state.takeawaysHighlighted.has(id)) {
+    state.takeawaysHighlighted.delete(id);
+  } else {
+    if (!state.takeawaysSelected.has(id) && !addTakeawayWithinCap(id)) return;
+    state.takeawaysHighlighted.add(id);
+  }
+  state.takeawaysConfirmed = false;
+  refreshTk();
+  saveProjectData();
+}
+
+// Add `id` to the selection unless its block is already at the cap. Returns success.
+function addTakeawayWithinCap(id) {
+  const block = _tkBlocks[state.tkBlockIdx];
+  const byBlock = keptTakeawaysByBlock();
+  const count = (byBlock[block] || []).filter(d => state.takeawaysSelected.has(d.id)).length;
+  if (count >= TAKEAWAYS_PER_BLOCK) return false;
+  state.takeawaysSelected.add(id);
+  return true;
+}
+
+function refreshTk() {
+  const tabs = document.getElementById('tkTabs');
+  const panel = document.getElementById('tkPanel');
+  if (tabs) tabs.innerHTML = tkTabsHtml();
+  if (panel) panel.innerHTML = tkPanelHtml();
+  updateTakeawaySummary();
+}
+
+function updateTakeawaySummary() {
+  const total = state.takeawaysSelected.size;
+  const el = document.getElementById('tkSummary');
+  if (el) {
+    el.innerHTML =
+      `<span class="tk-sum-num">${total}</span> selected` +
+      ` · <span class="tk-sum-num hi">${state.takeawaysHighlighted.size}</span> highlighted`;
+  }
+  // Keep the confirm bar in sync: disable when nothing is selected; editing after
+  // a prior confirmation clears the confirmed flag (selection changed).
+  const btn = document.getElementById('tkConfirmBtn');
+  const hint = document.getElementById('tkActionHint');
+  if (btn) btn.disabled = total === 0;
+  if (hint) {
+    hint.innerHTML = total === 0
+      ? 'Select at least one takeaway to continue.'
+      : (state.takeawaysConfirmed
+          ? `✓ Confirmed — ${total} takeaway${total === 1 ? '' : 's'} carried to Roadmap.`
+          : `${total} takeaway${total === 1 ? '' : 's'} across ${_tkBlocks.length} block${_tkBlocks.length === 1 ? '' : 's'} ready to confirm.`);
+  }
+}
+
+function confirmTakeaways() {
+  if (state.takeawaysSelected.size === 0) return;
+  state.takeawaysConfirmed = true;
+  saveProjectData(true);          // persist immediately before moving on
+  switchStage('roadmap');
+}
+
+// ─── Roadmap module ──────────────────────────────────────────────
+// Candidates are the key takeaways selected in the previous step. The user
+// picks up to ROADMAP_MAX of them to carry into the roadmap. Highlighted
+// takeaways are marked but selection is independent.
+
+// Stable per-block colour from its index — spread hues, no palette to maintain.
+// Fixed colors per building block — must stay in sync with ROADMAP_BLOCK_COLORS in deck_builder.py.
+const BLOCK_FILL_COLORS = {
+  "sales hiring & ramp-up":         "#BDD3F3",
+  "sales enablement":               "#B4C5DF",
+  "sales performance management":   "#DBE3F0",
+  "talent management":              "#98B5FE",
+  "demand generation":              "#B9CDD5",
+  "sales execution":                "#EBC5D0",
+  "client relationship":            "#C5C3DF",
+  "revenue operations":             "#C8C5C5",
+};
+
+function _normBlock(b) {
+  return (b || '').replace(/^\d+[.)]\s*/, '').trim().toLowerCase();
+}
+
+function _blockFill(block) {
+  const norm = _normBlock(block);
+  if (BLOCK_FILL_COLORS[norm]) return BLOCK_FILL_COLORS[norm];
+  // Word-subset fallback (e.g. "Sales Hiring & New Hire ramp-Up" → key)
+  const normWords = new Set(norm.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean));
+  for (const [key, hex] of Object.entries(BLOCK_FILL_COLORS)) {
+    const keyWords = new Set(key.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean));
+    const isSubset = (a, b) => [...a].every(w => b.has(w));
+    if (isSubset(normWords, keyWords) || isSubset(keyWords, normWords)) return hex;
+  }
+  return "#C8C5C5";
+}
+
+function blockColor(block) {
+  const fill = _blockFill(block);
+  return { bar: fill, bg: fill, text: '#19323F', fill };
+}
+
+// Selected key takeaways (still kept), in block order, ready to choose from.
+function roadmapCandidates() {
+  const out = [];
+  BLOCKS.forEach(b => {
+    RAW_DATA.forEach(d => {
+      if (d.block !== b) return;
+      if (state.removedIds.has(d.id)) return;
+      if (state.takeawaysSelected.has(d.id)) out.push(d);
+    });
+  });
+  return out;
+}
+
+function renderRoadmap() {
+  const candidates = roadmapCandidates();
+  const panel = document.getElementById('mainPanel');
+  const actionRow = document.getElementById('actionRow');
+
+  if (!candidates.length) {
+    actionRow.style.display = 'none';
+    panel.innerHTML = `
+      <div class="stage-placeholder">
+        <div class="sp-icon">🗺️</div>
+        <h2>No items to plan yet</h2>
+        <p>Select and confirm key takeaways in the previous step — they become
+           the candidates you sequence into the roadmap here.</p>
+      </div>`;
+    return;
+  }
+
+  // Drop any stale selections (takeaway since unselected/removed upstream).
+  const valid = new Set(candidates.map(d => d.id));
+  [...state.roadmapSelected].forEach(id => { if (!valid.has(id)) state.roadmapSelected.delete(id); });
+
+  if (state.roadmapPhase === 'rephrase') { renderRoadmapRephrase(candidates); return; }
+  if (state.roadmapPhase === 'build') { renderRoadmapGantt(candidates); return; }
+
+  actionRow.innerHTML = `
+    <button class="btn-primary" id="rmConfirmBtn" onclick="createRoadmap()">
+      Create roadmap →
+    </button>
+    <span class="action-hint" id="rmActionHint"></span>`;
+  actionRow.style.display = 'flex';
+
+  panel.innerHTML = `
+    <div class="tk-wrap">
+      <div class="tk-head">
+        <div>
+          <h2 class="tk-title">Roadmap selection</h2>
+          <p class="tk-sub">Choose up to ${ROADMAP_MAX} of the confirmed key takeaways to
+             carry into the roadmap.</p>
+        </div>
+        <div class="tk-summary" id="rmSummary"></div>
+      </div>
+      <div class="pill-nav" id="rmFilter">${rmFilterHtml(candidates)}</div>
+      <div class="tk-panel" id="rmPanel">${rmPanelHtml(candidates)}</div>
+    </div>`;
+  updateRoadmapSummary();
+}
+
+// Filter pills: All + one per block present in the candidates, colour-coded.
+let _rmFilterKeys = [];
+function rmFilterHtml(candidates) {
+  const blocks = BLOCKS.filter(b => candidates.some(d => d.block === b));
+  _rmFilterKeys = ['all', ...blocks];
+  return _rmFilterKeys.map((key, idx) => {
+    const active = state.roadmapFilter === key;
+    if (key === 'all') {
+      return `<div class="pill ${active ? 'active' : ''}" onclick="setRoadmapFilter(${idx})">
+        All Blocks <span class="pill-count">${candidates.length}</span></div>`;
+    }
+    const c = blockColor(key);
+    const n = candidates.filter(d => d.block === key).length;
+    const style = active
+      ? `background:${c.bar};border-color:${c.bar};color:#fff`
+      : `border-left:4px solid ${c.bar};color:${c.text}`;
+    return `<div class="pill ${active ? 'active' : ''}" style="${style}" onclick="setRoadmapFilter(${idx})">
+      ${escapeHtml(key.replace(/^\d+\.\s*/, ''))} <span class="pill-count">${n}</span></div>`;
+  }).join('');
+}
+function setRoadmapFilter(i) {
+  const k = _rmFilterKeys[i];
+  if (k == null) return;
+  state.roadmapFilter = k;
+  renderRoadmap();
+}
+
+function rmPanelHtml(candidates) {
+  const sel = state.roadmapSelected.size;
+  const full = sel >= ROADMAP_MAX;
+  const shown = state.roadmapFilter === 'all'
+    ? candidates
+    : candidates.filter(d => d.block === state.roadmapFilter);
+  // Default order: highlighted takeaways first, then selected, then the rest;
+  // original (block) order preserved within each group.
+  const rank = d => state.takeawaysHighlighted.has(d.id) ? 0
+                  : state.roadmapSelected.has(d.id) ? 1 : 2;
+  const ordered = shown
+    .map((d, i) => ({ d, i }))
+    .sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i)
+    .map(x => x.d);
+  return `
+    <div class="tk-block-bar">
+      <span class="tk-block-name">${state.roadmapFilter === 'all' ? 'Confirmed takeaways' : escapeHtml(state.roadmapFilter.replace(/^\d+\.\s*/, ''))}</span>
+      <span class="tk-block-count ${full ? 'full' : ''}">
+        ${sel} selected in ${candidates.length} item${candidates.length === 1 ? '' : 's'}
+        · ${sel} / ${ROADMAP_MAX} cap
+      </span>
+    </div>
+    <div class="tk-list">
+      ${ordered.map(d => renderRoadmapRow(d, full)).join('')}
+    </div>`;
+}
+
+function renderRoadmapRow(d, full) {
+  const selected = state.roadmapSelected.has(d.id);
+  const highlighted = state.takeawaysHighlighted.has(d.id);
+  const locked = !selected && full;
+  const initiative = (d.initiative || '').trim();
+  const c = blockColor(d.block);
+  return `
+    <div class="tk-item ${selected ? 'selected' : ''} ${highlighted ? 'highlighted' : ''}"
+         style="border-left:5px solid ${c.bar}">
+      <button class="tk-check ${locked ? 'locked' : ''}" ${locked ? 'disabled' : ''}
+              onclick="toggleRoadmap(${d.id})"
+              title="${selected ? 'Remove from roadmap' : (locked ? 'Roadmap limit reached' : 'Add to roadmap')}">
+        ${selected ? '✓' : ''}
+      </button>
+      <div class="tk-body">
+        <div class="tk-field">
+          <div class="tk-field-hd">
+            <span class="tk-block-tag" style="background:${c.bg};color:${c.text}">${escapeHtml(d.block.replace(/^\d+\.\s*/, ''))}</span>
+            ${highlighted ? '<span style="color:var(--amber);font-size:13px">★</span>' : ''}
+            <button class="field-edit-btn" onclick="editIssueField(${d.id},'takeaway')" title="Edit">✎</button>
+          </div>
+          <div class="tk-text" data-edit="${d.id}-takeaway">${escapeHtml(d.takeaway)}</div>
+        </div>
+        <div class="tk-field">
+          <div class="tk-field-hd"><span class="tk-label">Initiative</span><button class="field-edit-btn" onclick="editIssueField(${d.id},'initiative')" title="Edit">✎</button></div>
+          <div class="tk-init ${initiative ? '' : 'empty'}" data-edit="${d.id}-initiative">${initiative ? escapeHtml(initiative) : '—'}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function toggleRoadmap(id) {
+  state.roadmapConfirmed = false;
+  if (state.roadmapSelected.has(id)) {
+    state.roadmapSelected.delete(id);
+  } else {
+    if (state.roadmapSelected.size >= ROADMAP_MAX) return;   // cap reached → no-op
+    state.roadmapSelected.add(id);
+  }
+  const panel = document.getElementById('rmPanel');
+  if (panel) panel.innerHTML = rmPanelHtml(roadmapCandidates());
+  updateRoadmapSummary();
+  saveProjectData();
+}
+
+function updateRoadmapSummary() {
+  const total = state.roadmapSelected.size;
+  const el = document.getElementById('rmSummary');
+  if (el) el.innerHTML = `<span class="tk-sum-num">${total}</span> / ${ROADMAP_MAX} selected`;
+  const btn = document.getElementById('rmConfirmBtn');
+  const hint = document.getElementById('rmActionHint');
+  if (btn) btn.disabled = total === 0;
+  if (hint) {
+    hint.innerHTML = total === 0
+      ? 'Select at least one item to build the roadmap.'
+      : (state.roadmapConfirmed
+          ? `✓ Confirmed — ${total} item${total === 1 ? '' : 's'} in the roadmap.`
+          : `${total} item${total === 1 ? '' : 's'} ready to confirm.`);
+  }
+}
+
+// ─── Roadmap Gantt builder ───────────────────────────────────────
+// Bars live on a continuous 0..1 timeline: item = {start, end} as fractions.
+// Cycles are variable-width partitions (weights summing to 1) whose dividers
+// the user can drag. Rows can be reordered by dragging their handle.
+
+// Selected items, indexed by id, in their natural (block) order.
+function roadmapItems() {
+  return roadmapCandidates().filter(d => state.roadmapSelected.has(d.id));
+}
+
+// Selected items in the user's chosen row order.
+function orderedRoadmapItems() {
+  const byId = new Map(roadmapItems().map(d => [d.id, d]));
+  return state.roadmapPlan.order.map(id => byId.get(id)).filter(Boolean);
+}
+
+// Normalise the plan: weights match the cycle count, order/items track the
+// current selection, and any legacy {start,span} cycle-unit shape is migrated.
+function ensureRoadmapPlan() {
+  const plan = state.roadmapPlan;
+  const items = roadmapItems();
+  const ids = items.map(d => d.id);
+  const idset = new Set(ids);
+
+  if (!Array.isArray(plan.weights) || plan.weights.length !== plan.cycles) {
+    plan.weights = Array(plan.cycles).fill(1 / plan.cycles);
+  }
+  if (!plan.months) plan.months = ROADMAP_MONTHS_DEFAULT;
+  if (plan.startMonth === undefined) plan.startMonth = null;
+  if (!Array.isArray(plan.order)) plan.order = [];
+  plan.order = plan.order.filter(id => idset.has(id));
+  ids.forEach(id => { if (!plan.order.includes(id)) plan.order.push(id); });
+
+  plan.items = plan.items || {};
+  plan.labels = plan.labels || {};
+  Object.keys(plan.items).forEach(id => { if (!idset.has(+id)) delete plan.items[id]; });
+  Object.keys(plan.labels).forEach(id => { if (!idset.has(+id)) delete plan.labels[id]; });
+  items.forEach((d, i) => {
+    let it = plan.items[d.id];
+    if (it && it.span != null) {                 // legacy cycle-unit shape → fractions
+      const cyc = Math.max(1, plan.cycles);
+      it = { start: it.start / cyc, end: (it.start + it.span) / cyc };
+      plan.items[d.id] = it;
+    }
+    if (!it) {                                    // default: stagger one cycle-width across the timeline
+      const w = 1 / Math.max(1, plan.cycles);
+      const s = Math.min(1 - w, (i % plan.cycles) * w);
+      plan.items[d.id] = { start: s, end: s + w };
+    }
+  });
+}
+
+function createRoadmap() {
+  if (state.roadmapSelected.size === 0) return;
+  ensureRoadmapPlan();
+  state.roadmapConfirmed = true;
+  state.roadmapPhase = 'rephrase';
+  saveProjectData(true);
+  renderRoadmap();
+}
+
+function backToRoadmapSelect() {
+  state.roadmapPhase = 'select';
+  saveProjectData();
+  renderRoadmap();
+}
+
+function backToRephrase() {
+  state.roadmapPhase = 'rephrase';
+  saveProjectData();
+  renderRoadmap();
+}
+
+function proceedToGantt() {
+  state.roadmapPhase = 'build';
+  saveProjectData(true);
+  renderRoadmap();
+}
+
+// ─── Rephrase step ───────────────────────────────────────────────
+function renderRoadmapRephrase(candidates) {
+  const panel = document.getElementById('mainPanel');
+  const actionRow = document.getElementById('actionRow');
+  ensureRoadmapPlan();
+  const items = orderedRoadmapItems();
+
+  actionRow.innerHTML = `
+    <button class="btn-ghost" onclick="backToRoadmapSelect()">← Edit selection</button>
+    <button class="btn-primary" onclick="proceedToGantt()">Build roadmap →</button>
+    <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} — rename before placing on the Gantt</span>`;
+  actionRow.style.display = 'flex';
+
+  panel.innerHTML = `
+    <div class="tk-wrap">
+      <div class="tk-head">
+        <div>
+          <h2 class="tk-title">Rephrase programs</h2>
+          <p class="tk-sub">Edit each program label before placing it on the roadmap. The original wording is shown for reference.</p>
+        </div>
+      </div>
+      <div class="tk-list">
+        ${items.map(d => rephraseItemHtml(d)).join('')}
+      </div>
+    </div>`;
+}
+
+function rephraseItemHtml(d) {
+  const c = blockColor(d.block);
+  const label = rmLabel(d);
+  const orig = rmDefaultLabel(d);
+  return `
+    <div class="rephrase-item">
+      <span class="tk-block-tag" style="background:${c.bg};color:${c.text}">${escapeHtml(d.block.replace(/^\d+\.\s*/,''))}</span>
+      <textarea class="rephrase-label" rows="2"
+        onblur="commitRephrase(${d.id},this)"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
+      >${escapeHtml(label)}</textarea>
+      <div class="rephrase-orig" id="rephrase-orig-${d.id}">${label !== orig ? `Original: ${escapeHtml(orig)}` : ''}</div>
+    </div>`;
+}
+
+function commitRephrase(id, ta) {
+  const val = ta.value.trim();
+  const d = RAW_DATA.find(x => x.id === id);
+  if (!d) return;
+  const orig = rmDefaultLabel(d);
+  if (val && val !== orig) state.roadmapPlan.labels[id] = val;
+  else delete state.roadmapPlan.labels[id];
+  saveProjectData();
+  const origEl = document.getElementById(`rephrase-orig-${id}`);
+  if (origEl) origEl.textContent = val !== orig ? `Original: ${orig}` : '';
+}
+
+// Changing the cycle count resets the partition to equal widths; bars keep
+// their place on the 0..1 timeline.
+function setRoadmapCycles(delta) {
+  const plan = state.roadmapPlan;
+  const next = Math.min(ROADMAP_CYCLES_MAX, Math.max(1, plan.cycles + delta));
+  if (next === plan.cycles) return;
+  plan.cycles = next;
+  plan.weights = Array(next).fill(1 / next);
+  saveProjectData();
+  renderRoadmap();
+}
+
+// Month axis: `months` equal columns labelled from `startMonth` ("YYYY-MM").
+// Editing the first month shifts every label; unset → starts at the current month.
+function roadmapMonthStart(plan) {
+  if (plan.startMonth && /^\d{4}-\d{2}$/.test(plan.startMonth)) {
+    return { y: +plan.startMonth.slice(0, 4), m: +plan.startMonth.slice(5, 7) - 1 };
+  }
+  const d = new Date();
+  return { y: d.getFullYear(), m: d.getMonth() };
+}
+function roadmapMonthLabels(plan) {
+  const { m } = roadmapMonthStart(plan);
+  return Array.from({ length: plan.months }, (_, i) => MONTH_NAMES[(m + i) % 12]);
+}
+function setRoadmapMonths(delta) {
+  const plan = state.roadmapPlan;
+  const next = Math.min(ROADMAP_MONTHS_MAX, Math.max(1, plan.months + delta));
+  if (next === plan.months) return;
+  plan.months = next;
+  saveProjectData();
+  renderRoadmap();
+}
+function setRoadmapStartMonth(value) {
+  state.roadmapPlan.startMonth = value || null;
+  saveProjectData();
+  renderRoadmap();
+}
+
+function renderRoadmapGantt(candidates) {
+  ensureRoadmapPlan();
+  const items = orderedRoadmapItems();
+  const plan = state.roadmapPlan;
+  const actionRow = document.getElementById('actionRow');
+  const panel = document.getElementById('mainPanel');
+
+  actionRow.innerHTML = `
+    <button class="btn-ghost" onclick="backToRephrase()">← Rephrase</button>
+    <button class="btn-primary" onclick="confirmRoadmap()">Confirm roadmap → Deck</button>
+    <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} · ${plan.cycles} cycles · drag bars to move/resize, ⠿ to reorder, dividers to rebalance</span>`;
+  actionRow.style.display = 'flex';
+
+  const legendBlocks = BLOCKS.filter(b => items.some(d => d.block === b));
+  const legend = legendBlocks.map(b => {
+    const c = blockColor(b);
+    return `<div class="rm-leg-item"><span class="rm-leg-sw" style="background:${c.fill}"></span>${escapeHtml(b.replace(/^\d+\.\s*/, ''))}</div>`;
+  }).join('');
+
+  // Cumulative boundaries from weights (sum = 1).
+  const bounds = [];
+  let acc = 0;
+  plan.weights.forEach(w => { acc += w; bounds.push(acc); });   // bounds[i] = right edge of cycle i
+
+  const dividers = plan.weights.slice(0, -1).map((_, i) =>
+    `<div class="rm-divider" data-div="${i}" style="left:${bounds[i] * 100}%"></div>`).join('');
+  const cycleLabels = plan.weights.map((w, i) =>
+    `<div class="rm-cycle" style="width:${w * 100}%">Cycle ${i + 1}</div>`).join('');
+
+  // Month axis: equal columns + separator lines across the plot.
+  const months = roadmapMonthLabels(plan);
+  const monthW = 100 / plan.months;
+  const monthHeader = months.map(name =>
+    `<div class="rm-month" style="width:${monthW}%">${name}</div>`).join('');
+  const monthLines = months.slice(1).map((_, i) =>
+    `<div class="rm-monthline" style="left:${monthW * (i + 1)}%"></div>`).join('');
+  const startVal = (() => { const s = roadmapMonthStart(plan); return `${s.y}-${String(s.m + 1).padStart(2, '0')}`; })();
+
+  const rows = items.map(d => rmRowHtml(d)).join('');
+
+  panel.innerHTML = `
+    <div class="rm-gantt">
+      <div class="rm-gantt-head">
+        <div>
+          <h2 class="rm-gantt-title">Initiatives Prioritization <span>| Gantt view</span></h2>
+          <p class="rm-gantt-sub">Recommended programs over time</p>
+        </div>
+        <div class="rm-ctrls">
+          <div class="rm-cycle-ctrl">
+            Start
+            <input type="month" class="rm-month-input" value="${startVal}"
+                   onchange="setRoadmapStartMonth(this.value)">
+          </div>
+          <div class="rm-cycle-ctrl">
+            Months
+            <button onclick="setRoadmapMonths(-1)" ${plan.months <= 1 ? 'disabled' : ''}>−</button>
+            <span>${plan.months}</span>
+            <button onclick="setRoadmapMonths(1)" ${plan.months >= ROADMAP_MONTHS_MAX ? 'disabled' : ''}>+</button>
+          </div>
+          <div class="rm-cycle-ctrl">
+            Cycles
+            <button onclick="setRoadmapCycles(-1)" ${plan.cycles <= 1 ? 'disabled' : ''}>−</button>
+            <span>${plan.cycles}</span>
+            <button onclick="setRoadmapCycles(1)" ${plan.cycles >= ROADMAP_CYCLES_MAX ? 'disabled' : ''}>+</button>
+          </div>
+        </div>
+      </div>
+      <div class="rm-main">
+        <div class="rm-chart">
+          <div class="rm-yaxis">Programs / decisions to set up</div>
+          <div class="rm-monthrow"><div class="rm-axis-label"></div><div class="rm-months">${monthHeader}</div></div>
+          <div class="rm-plot">
+            <div class="rm-monthlines">${monthLines}</div>
+            <div class="rm-rows" id="rmRows">${rows}</div>
+            <div class="rm-dividers" id="rmDividers">${dividers}</div>
+          </div>
+          <div class="rm-axis"><div class="rm-axis-label"></div><div class="rm-cycles">${cycleLabels}</div></div>
+        </div>
+        <div class="rm-legend">
+          <div class="rm-legend-title">Building Blocks</div>
+          ${legend}
+        </div>
+      </div>
+    </div>`;
+
+  attachGanttDrag();
+}
+
+const _rmSnap = v => Math.round(v / ROADMAP_SNAP) * ROADMAP_SNAP;
+const _clamp01 = v => Math.max(0, Math.min(1, v));
+
+// Display label for a row: the user's override if set, else the initiative.
+function rmDefaultLabel(d) { return (d.initiative || d.takeaway || '').trim(); }
+function rmLabel(d) {
+  const custom = state.roadmapPlan.labels && state.roadmapPlan.labels[d.id];
+  return custom != null && custom !== '' ? custom : rmDefaultLabel(d);
+}
+
+function rmRowHtml(d, draggingId) {
+  const it = state.roadmapPlan.items[d.id];
+  const c = blockColor(d.block);
+  const label = rmLabel(d);
+  return `
+    <div class="rm-row ${d.id === draggingId ? 'dragging' : ''}" data-id="${d.id}">
+      <div class="rm-row-label">
+        <span class="rm-row-handle" data-handle="1" title="Drag to reorder">⠿</span>
+        <span class="rm-row-text" data-edit="${d.id}" title="${escapeHtml(label)} — double-click to rename">${escapeHtml(label)}</span>
+      </div>
+      <div class="rm-track">
+        <div class="rm-bar" data-id="${d.id}"
+             style="left:${it.start * 100}%;width:${(it.end - it.start) * 100}%;background:${c.fill}">
+          <span class="rm-bar-grip left" data-grip="left"></span>
+          <span class="rm-bar-grip right" data-grip="right"></span>
+        </div>
+      </div>
+    </div>`;
+}
+
+// One active drag at a time. Document-level move/up listeners (bound once) keep
+// tracking the pointer even across the in-place row re-render used by reorder —
+// no pointer capture, so nothing gets lost.
+let _gDrag = null;
+
+function attachGanttDrag() {
+  const rows = document.getElementById('rmRows');
+  const divLayer = document.getElementById('rmDividers');
+  if (!rows) return;
+
+  rows.onpointerdown = e => {
+    const handle = e.target.closest('.rm-row-handle');
+    if (handle) {
+      const row = handle.closest('.rm-row');
+      _gDrag = { kind: 'row', id: +row.dataset.id };
+      row.classList.add('dragging');
+      e.preventDefault();
+      return;
+    }
+    const bar = e.target.closest('.rm-bar');
+    if (!bar) return;
+    const it = state.roadmapPlan.items[+bar.dataset.id];
+    _gDrag = {
+      kind: 'bar', bar, it,
+      mode: e.target.dataset.grip || 'move',
+      trackW: bar.parentElement.getBoundingClientRect().width,
+      startX: e.clientX, s0: it.start, e0: it.end,
+    };
+    bar.classList.add('dragging');
+    e.preventDefault();
+  };
+
+  rows.ondblclick = e => {
+    const t = e.target.closest('.rm-row-text');
+    if (t) editRoadmapLabel(+t.dataset.edit, t);
+  };
+
+  if (divLayer) divLayer.onpointerdown = e => {
+    const dv = e.target.closest('.rm-divider');
+    if (!dv) return;
+    const i = +dv.dataset.div;                       // boundary between cycle i and i+1
+    const plan = state.roadmapPlan;
+    const rect = divLayer.getBoundingClientRect();
+    const leftEdge = plan.weights.slice(0, i).reduce((a, b) => a + b, 0);
+    const pairSum = plan.weights[i] + plan.weights[i + 1];
+    _gDrag = {
+      kind: 'divider', dv, i,
+      rectLeft: rect.left, rectW: rect.width,
+      leftEdge, pairSum,
+      minB: leftEdge + ROADMAP_CYCLE_MIN,
+      maxB: leftEdge + pairSum - ROADMAP_CYCLE_MIN,
+    };
+    dv.classList.add('dragging');
+    e.preventDefault();
+  };
+
+  if (!attachGanttDrag._bound) {
+    document.addEventListener('pointermove', onGanttPointerMove);
+    document.addEventListener('pointerup', endGanttDrag);
+    document.addEventListener('pointercancel', endGanttDrag);
+    attachGanttDrag._bound = true;
+  }
+}
+
+function onGanttPointerMove(e) {
+  const g = _gDrag;
+  if (!g) return;
+  if (g.kind === 'bar') {
+    const d = (e.clientX - g.startX) / g.trackW;
+    const it = g.it;
+    if (g.mode === 'move') {
+      const span = g.e0 - g.s0;
+      let s = _clamp01(_rmSnap(g.s0 + d));
+      s = Math.min(s, 1 - span);
+      it.start = s; it.end = s + span;
+    } else if (g.mode === 'left') {
+      it.start = _clamp01(Math.min(_rmSnap(g.s0 + d), it.end - ROADMAP_SNAP));
+    } else {
+      it.end = _clamp01(Math.max(_rmSnap(g.e0 + d), it.start + ROADMAP_SNAP));
+    }
+    g.bar.style.left = it.start * 100 + '%';
+    g.bar.style.width = (it.end - it.start) * 100 + '%';
+  } else if (g.kind === 'divider') {
+    const plan = state.roadmapPlan;
+    // Absolute: put the boundary exactly under the cursor, then clamp/snap.
+    let b = _rmSnap((e.clientX - g.rectLeft) / g.rectW);
+    b = Math.max(g.minB, Math.min(g.maxB, b));
+    plan.weights[g.i] = b - g.leftEdge;
+    plan.weights[g.i + 1] = g.pairSum - plan.weights[g.i];
+    g.dv.style.left = b * 100 + '%';
+    const labels = document.querySelectorAll('.rm-cycles .rm-cycle');
+    if (labels[g.i]) labels[g.i].style.width = plan.weights[g.i] * 100 + '%';
+    if (labels[g.i + 1]) labels[g.i + 1].style.width = plan.weights[g.i + 1] * 100 + '%';
+  } else if (g.kind === 'row') {
+    reorderRowsByY(g.id, e.clientY);
+  }
+}
+
+function endGanttDrag() {
+  if (!_gDrag) return;
+  document.querySelectorAll('.rm-bar.dragging, .rm-row.dragging, .rm-divider.dragging')
+    .forEach(el => el.classList.remove('dragging'));
+  _gDrag = null;
+  saveProjectData();
+}
+
+// Move the dragged row to wherever the pointer sits; re-render rows in place.
+function reorderRowsByY(id, clientY) {
+  const order = state.roadmapPlan.order;
+  const rowEls = [...document.querySelectorAll('#rmRows .rm-row')];
+  let target = rowEls.length - 1;
+  for (let i = 0; i < rowEls.length; i++) {
+    const r = rowEls[i].getBoundingClientRect();
+    if (clientY < r.top + r.height / 2) { target = i; break; }
+  }
+  const cur = order.indexOf(id);
+  if (cur === target || cur === -1) return;
+  order.splice(cur, 1);
+  order.splice(target, 0, id);
+  rebuildRoadmapRows(id);
+}
+
+// Re-render just the rows list (cheap; keeps #rmRows and its handlers alive).
+function rebuildRoadmapRows(draggingId) {
+  const rows = document.getElementById('rmRows');
+  if (!rows) return;
+  rows.innerHTML = orderedRoadmapItems().map(d => rmRowHtml(d, draggingId)).join('');
+}
+
+// Inline-rename a row to a more concise label. Blank reverts to the default.
+function editRoadmapLabel(id, span) {
+  const d = roadmapItems().find(x => x.id === id);
+  if (!d) return;
+  const input = document.createElement('input');
+  input.className = 'rm-row-edit';
+  input.value = rmLabel(d);
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+  const commit = () => {
+    const v = input.value.trim();
+    const plan = state.roadmapPlan;
+    plan.labels = plan.labels || {};
+    if (v && v !== rmDefaultLabel(d)) plan.labels[id] = v; else delete plan.labels[id];
+    saveProjectData();
+    rebuildRoadmapRows();
+  };
+  input.onkeydown = ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+    else if (ev.key === 'Escape') { input.onblur = null; rebuildRoadmapRows(); }
+  };
+  input.onblur = commit;
+}
+
+function confirmRoadmap() {
+  if (state.roadmapSelected.size === 0) return;
+  state.roadmapConfirmed = true;
+  saveProjectData(true);
+  switchStage('deck');
+}
+
+// ─── Deck module ─────────────────────────────────────────────────
+// Generates the filled Revenue Audit deck from the bundled template: the user
+// uploads the self-assessment xlsx, the server places the Diagnosis Synthesis
+// dots and returns the .pptx for download.
+
+let _deckXlsx = null;   // { name, b64 }
+
+function renderDeck() {
+  const panel = document.getElementById('mainPanel');
+  document.getElementById('actionRow').style.display = 'none';
+  panel.innerHTML = `
+    <div class="deck-wrap">
+      <h2 class="tk-title">Generate the deck</h2>
+      <p class="tk-sub">Upload the self-assessment Excel export — the Diagnosis Synthesis
+         slides are filled with the scored dots and the deck downloads as a .pptx.</p>
+
+      <div class="deck-form">
+        <label class="deck-field">
+          <span>Client name</span>
+          <input id="deckClient" type="text" placeholder="e.g. Horizons Optical"
+                 value="${escapeHtml(PROJECT.name || '')}">
+        </label>
+        <div class="deck-row">
+          <label class="deck-field">
+            <span>Date <em>(optional)</em></span>
+            <input id="deckDate" type="text" placeholder="e.g. June 2026">
+          </label>
+        </div>
+        <label class="deck-field">
+          <span>Self-assessment (.xlsx)</span>
+          <input id="deckFile" type="file" accept=".xlsx" onchange="onDeckFile(event)">
+          <span class="deck-filehint" id="deckFileName">No file selected.</span>
+        </label>
+
+        <button class="btn-primary" id="deckGenBtn" onclick="generateDeck()" disabled>
+          Generate deck
+        </button>
+        <span class="action-hint" id="deckHint">Upload the Excel file to enable generation.</span>
+      </div>
+    </div>`;
+}
+
+function onDeckFile(e) {
+  const file = e.target.files && e.target.files[0];
+  const nameEl = document.getElementById('deckFileName');
+  const btn = document.getElementById('deckGenBtn');
+  const hint = document.getElementById('deckHint');
+  if (!file) { _deckXlsx = null; btn.disabled = true; nameEl.textContent = 'No file selected.'; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    // dataURL → strip the "data:...;base64," prefix
+    _deckXlsx = { name: file.name, b64: String(reader.result).split(',')[1] };
+    nameEl.textContent = file.name;
+    btn.disabled = false;
+    hint.textContent = 'Ready to generate.';
+  };
+  reader.readAsDataURL(file);
+}
+
+// The roadmap built in the Roadmap stage, shaped for the deck's Gantt slide.
+// Returns null when nothing has been selected (deck keeps the template roadmap).
+function buildTakeawaysPayload() {
+  const out = {};
+  BLOCKS.forEach(b => {
+    const bn = b.replace(/^\d+\.\s*/, '');
+    const items = RAW_DATA.filter(d =>
+      d.block === b && !state.removedIds.has(d.id) && state.takeawaysSelected.has(d.id));
+    if (items.length) {
+      out[bn] = items.map(d => ({
+        takeaway: d.takeaway || '',
+        initiative: d.initiative || '',
+        highlighted: state.takeawaysHighlighted.has(d.id),
+      }));
+    }
+  });
+  return out;
+}
+
+function buildRoadmapPayload() {
+  if (!state.roadmapSelected || state.roadmapSelected.size === 0) return null;
+  ensureRoadmapPlan();
+  const plan = state.roadmapPlan;
+  const items = orderedRoadmapItems().map(d => {
+    const it = plan.items[d.id];
+    return { label: rmLabel(d), block: d.block, start: it.start, end: it.end };
+  });
+  if (!items.length) return null;
+  return {
+    cycles: plan.cycles, weights: plan.weights, items,
+    months: plan.months, monthLabels: roadmapMonthLabels(plan),
+  };
+}
+
+async function generateDeck() {
+  const client = document.getElementById('deckClient').value.trim();
+  const btn = document.getElementById('deckGenBtn');
+  const hint = document.getElementById('deckHint');
+  if (!client) { hint.textContent = 'Enter a client name first.'; return; }
+  if (!_deckXlsx) { hint.textContent = 'Upload the Excel file first.'; return; }
+
+  btn.disabled = true;
+  hint.textContent = 'Generating…';
+  try {
+    const res = await fetch('/api/deck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        client,
+        segment: null,
+        date: document.getElementById('deckDate').value.trim(),
+        xlsx_b64: _deckXlsx.b64,
+        roadmap: buildRoadmapPayload(),
+        takeaways: buildTakeawaysPayload(),
+      }),
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.json()).error || msg; } catch {}
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = m ? m[1] : 'deck.pptx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+    hint.textContent = '✓ Deck downloaded.';
+  } catch (err) {
+    hint.textContent = `Failed: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function updateHeader() {
@@ -404,7 +1586,7 @@ async function startAnalysis() {
     const bi = RAW_DATA.filter(d => d.block === block);
     const lex = getCandidatePairs(bi);
     const emb = vecById ? embeddingCandidatePairs(bi, vecById) : [];
-    const pairs = unionPairs(emb, lex);
+    const pairs = transitivePairs(unionPairs(emb, lex));
     candByBlock[block] = pairs; totalPairs += pairs.length;
     log(`  ✓ ${block.replace(/^\d+\.\s*/,'')} : ${pairs.length} pairs (emb ${emb.length} / lex ${lex.length}) · ${bi.length} issues`, 'done');
   }

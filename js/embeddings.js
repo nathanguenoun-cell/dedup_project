@@ -10,7 +10,7 @@
 // it returns null and the caller falls back to lexical-only candidates.
 // ═══════════════════════════════════════════════════════════════
 
-const EMB_THRESHOLD = 0.55;   // cosine ≥ this → candidate pair (recall-oriented; the LLM filters)
+const EMB_THRESHOLD = 0.45;   // cosine ≥ this → candidate pair; lowered from 0.55 to catch paraphrased duplicates (LLM filters FPs)
 const EMB_BATCH = 96;         // texts per request (kept under provider input limits)
 
 function _issueText(i) {
@@ -93,6 +93,46 @@ function unionPairs(a, b) {
   return [...map.values()].sort((x, y) => y.score - x.score);
 }
 
+// Transitive closure: if A≈B and B≈C, add an implied A≈C hint pair so the LLM
+// explicitly sees the full connected component rather than just the direct edges.
+function transitivePairs(pairs) {
+  if (pairs.length < 2) return pairs;
+
+  // Union-find over indices
+  const parent = new Map();
+  const find = id => {
+    if (!parent.has(id)) parent.set(id, id);
+    if (parent.get(id) !== id) parent.set(id, find(parent.get(id)));
+    return parent.get(id);
+  };
+  pairs.forEach(p => {
+    const ra = find(p.idxA), rb = find(p.idxB);
+    if (ra !== rb) parent.set(ra, rb);
+  });
+
+  // Group members by component root
+  const components = new Map();
+  [...new Set(pairs.flatMap(p => [p.idxA, p.idxB]))].forEach(i => {
+    const r = find(i);
+    (components.get(r) || components.set(r, []).get(r)).push(i);
+  });
+
+  // Add missing cross-edges within each component (marked as implied)
+  const existing = new Set(pairs.map(p => `${p.idxA},${p.idxB}`));
+  const extra = [];
+  for (const members of components.values()) {
+    if (members.length < 3) continue;
+    members.sort((a, b) => a - b);
+    for (let a = 0; a < members.length; a++) {
+      for (let b = a + 1; b < members.length; b++) {
+        const key = `${members[a]},${members[b]}`;
+        if (!existing.has(key)) extra.push({ idxA: members[a], idxB: members[b], score: 0.35 });
+      }
+    }
+  }
+  return extra.length ? [...pairs, ...extra].sort((x, y) => y.score - x.score) : pairs;
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { embedAll, cosineDense, embeddingCandidatePairs, unionPairs, EMB_THRESHOLD };
+  module.exports = { embedAll, cosineDense, embeddingCandidatePairs, unionPairs, transitivePairs, EMB_THRESHOLD };
 }

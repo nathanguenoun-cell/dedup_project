@@ -39,6 +39,9 @@ API_KEY      = os.environ.get('ANTHROPIC_API_KEY', '')
 MODEL        = os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
 VERIFY_MODEL = os.environ.get('ANTHROPIC_VERIFY_MODEL', 'claude-haiku-4-5-20251001')
 MOCK_MODE    = not API_KEY
+# Optional environment label. When set (e.g. ENV_NAME=staging) a banner is shown
+# so you never confuse the staging deploy with production. Unset on prod → no banner.
+ENV_NAME     = os.environ.get('ENV_NAME', '').strip()
 
 # Embeddings provider (semantic candidate generation). Prefer Voyage (Anthropic's
 # recommended embeddings partner); fall back to OpenAI; else disabled → the client
@@ -47,7 +50,7 @@ VOYAGE_API_KEY = os.environ.get('VOYAGE_API_KEY', '')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 if VOYAGE_API_KEY:
     EMBED_PROVIDER = 'voyage'
-    EMBED_MODEL = os.environ.get('EMBEDDING_MODEL', 'voyage-3.5')
+    EMBED_MODEL = os.environ.get('EMBEDDING_MODEL', 'voyage-3-large')
 elif OPENAI_API_KEY:
     EMBED_PROVIDER = 'openai'
     EMBED_MODEL = os.environ.get('EMBEDDING_MODEL', 'text-embedding-3-small')
@@ -199,6 +202,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _send_binary(self, data, content_type, filename):
+        self.send_response(200)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+        self.end_headers()
+        self.wfile.write(data)
+
     def _try_api(self, method, body):
         """Route /api/* (except /api/messages) to api_handlers. Returns True if handled."""
         path = self.path.split('?', 1)[0]
@@ -217,8 +228,36 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path.startswith('/api/'):
             self._try_api('GET', b'')
             return
+        # Inject an environment banner into the page shell when ENV_NAME is set.
+        if ENV_NAME and path in ('/', '/index.html'):
+            self._serve_index_with_banner()
+            return
         # SPA fallback: serve index.html for unknown non-file routes
         super().do_GET()
+
+    def _serve_index_with_banner(self):
+        """Serve index.html with a fixed 'ENV_NAME' banner injected (staging only)."""
+        try:
+            with open(os.path.join(DIR, 'index.html'), 'r', encoding='utf-8') as f:
+                html = f.read()
+        except OSError:
+            super().do_GET()
+            return
+        label = ENV_NAME.upper()
+        banner = (
+            '<div style="position:fixed;top:0;left:0;right:0;z-index:99999;'
+            'background:#b91c1c;color:#fff;text-align:center;font:600 12px/24px '
+            'system-ui,sans-serif;letter-spacing:.08em;height:24px;">'
+            f'{label} — test environment</div>'
+            '<style>body{padding-top:24px;}</style>'
+        )
+        html = html.replace('<body>', '<body>\n' + banner, 1)
+        payload = html.encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def do_PUT(self):
         if not self._try_api('PUT', self._read_body()):
@@ -319,6 +358,45 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 dur = time.time() - t0
                 print(f"[messages] ERROR  block={block!r} after {dur:.1f}s: {type(e).__name__}: {e}", flush=True)
                 self._send_json(502, {"error": str(e)})
+            return
+
+        if path == '/api/deck':
+            if not auth.current_user(self):
+                self._send_json(401, {"error": "Not authenticated."})
+                return
+            try:
+                import base64, io as _io
+                import deck_builder
+                payload = json.loads(body) or {}
+                client = (payload.get('client') or '').strip()
+                if not client:
+                    self._send_json(400, {"error": "client name required."})
+                    return
+                xlsx_b64 = payload.get('xlsx_b64') or ''
+                if not xlsx_b64:
+                    self._send_json(400, {"error": "self-assessment xlsx required."})
+                    return
+                xlsx = _io.BytesIO(base64.b64decode(xlsx_b64))
+                template = os.path.join(DIR, 'templates', 'revenue_audit_template.pptx')
+                tk = payload.get('takeaways') or {}
+                print(f"[deck] takeaways blocks received: {list(tk.keys())}", flush=True)
+                print(f"[deck] expected blocks: {list(deck_builder.SLIDE_BB_MAP.values())}", flush=True)
+                t0 = time.time()
+                deck = deck_builder.build_deck(
+                    template, xlsx, client,
+                    segment=(payload.get('segment') or None),
+                    date=(payload.get('date') or None),
+                    roadmap=(payload.get('roadmap') or None),
+                    takeaways=(payload.get('takeaways') or None))
+                print(f"[deck] ok client={client!r} in {time.time()-t0:.1f}s bytes_out={len(deck)}", flush=True)
+                fname = re.sub(r'[^A-Za-z0-9]+', '_', client).strip('_') + '_Revenue_Audit.pptx'
+                self._send_binary(
+                    deck,
+                    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    fname)
+            except Exception as e:
+                print(f"[deck] ERROR: {type(e).__name__}: {e}", flush=True)
+                self._send_json(500, {"error": str(e)})
             return
 
         if not self._try_api('POST', body):
