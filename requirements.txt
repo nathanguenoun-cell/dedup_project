@@ -1,3 +1,9 @@
 # Deck generation (Diagnosis Synthesis slides). The rest of the app is stdlib.
 python-pptx>=1.0
 openpyxl>=3.1
+
+# Auto-pull the self-assessment from the master Google Sheet (Sheets API v4,
+# read-only) via a service account. `requests` backs google-auth's
+# AuthorizedSession and the REST call.
+google-auth>=2
+requests>=2

@@ -1,0 +1,980 @@
+[
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "Talent Aquisition",
+  "topic": "Process for headcount planning",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "Talent Aquisition",
+  "topic": "Pipeline management and use of data in Talent Acqusisition",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "Hiring Process",
+  "topic": "Hiring process",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "Hiring Process",
+  "topic": "Documentation of feedback",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "Hiring Process",
+  "topic": "Assessment of candidates",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "Hiring Process",
+  "topic": "Case studies",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "Hiring Process",
+  "topic": "Evaluation of candidate fit with company values",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "Hiring Process",
+  "topic": "Hiring committee",
+  "atscale": 2.5
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "Hiring Process",
+  "topic": "Acquisition of interviewing skills",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "Hiring Process",
+  "topic": "Evaluation of candidates competencies",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "New Hire Onboarding",
+  "topic": "Sales onboarding program",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "New Hire Onboarding",
+  "topic": "Accountability and ownership for decreasing ramp-up time",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "New Hire Onboarding",
+  "topic": "Presence and check-in of direct line manager during first weeks",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "New Hire Ramp Up",
+  "topic": "Peer-to-peer knowledge sharing",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "New Hire Ramp Up",
+  "topic": "Prospect list received day 1",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "New Hire Ramp Up",
+  "topic": "Bank of pitches and demos at disposal",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "New Hire Ramp Up",
+  "topic": "Mock calls and demos",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "New Hire Ramp Up",
+  "topic": "Velocity to acquire confidence in pitching our product",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "New Hire Ramp Up",
+  "topic": "Assessment of the product knowledge of new hires",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Hiring & Ramp-Up",
+  "sub_bb": "New Hire Ramp Up",
+  "topic": "Immediate course-correction of knowledge gaps",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Knowledge Management",
+  "topic": "Documentation culture",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Knowledge Management",
+  "topic": "Capture and Organize Knowledge",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Knowledge Management",
+  "topic": "Knowledge Sharing",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Knowledge Management",
+  "topic": "Training and Onboarding",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Knowledge Management",
+  "topic": "Continuous Learning",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Knowledge Management",
+  "topic": "Feedback and Improvement",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Collaterals",
+  "topic": "Importance of sales enablement",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Collaterals",
+  "topic": "Sales enablement platform",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Collaterals",
+  "topic": "Sales enablement materials",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Collaterals",
+  "topic": "Monitoring of results of sales enablement actions",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Playbooks",
+  "topic": "Sales Playbook",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Playbooks",
+  "topic": "Accuracy of Playbook",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Playbooks",
+  "topic": "Leveraging top performers",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Playbooks",
+  "topic": "Ownership",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Training",
+  "topic": "On-boarding including sales training",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Training",
+  "topic": "Training calendar",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Training",
+  "topic": "Sales trainer",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Training",
+  "topic": "Train the trainer",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Training",
+  "topic": "Curriculum",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Training",
+  "topic": "Training quality measurement",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Training",
+  "topic": "Training ROI",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Training",
+  "topic": "Manager's involvment",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Enablement",
+  "sub_bb": "Sales Training",
+  "topic": "Budget",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Performance Routines",
+  "topic": "Comprehensive measure of performance",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Performance Routines",
+  "topic": "One single source of truth",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Performance Routines",
+  "topic": "Consistency of performance management across teams",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Performance Routines",
+  "topic": "Quality of pipeline reviews",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Performance Routines",
+  "topic": "Task prioritization",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Performance Routines",
+  "topic": "1:1 Structure",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Performance Routines",
+  "topic": "Performance based coaching plans",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Floor animation",
+  "topic": "Sales Blitz",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Floor animation",
+  "topic": "Gamification",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Floor animation",
+  "topic": "SPIFF",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Floor animation",
+  "topic": "Sales Floor Routines",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Floor animation",
+  "topic": "Role play simulation between IC",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Sales Floor animation",
+  "topic": "Remote floor animation",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Under & Top Performance Management",
+  "topic": "Management of underperformance",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Under & Top Performance Management",
+  "topic": "Performance Expectations",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Under & Top Performance Management",
+  "topic": "Performance Feedback",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Under & Top Performance Management",
+  "topic": "Performance Improvement Plans",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Under & Top Performance Management",
+  "topic": "Performance Transparency",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Under & Top Performance Management",
+  "topic": "Training and Development",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Performance Management",
+  "sub_bb": "Under & Top Performance Management",
+  "topic": "Top Performance Management",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Org Structure",
+  "topic": "Latest organizational update",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Org Structure",
+  "topic": "Easiness of organizational change",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Org Structure",
+  "topic": "Clarity of process of organizational change",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Org Structure",
+  "topic": "Prescriptor for organizational change",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Career Path and Competency Framework",
+  "topic": "Robustness of Career Path",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Career Path and Competency Framework",
+  "topic": "Robusteness of Competency framework",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Career Path and Competency Framework",
+  "topic": "Applying Competency Framework to Performance reviews",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Employee Engagement",
+  "topic": "Perception of Performance Review Process",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Employee Engagement",
+  "topic": "Homogeneity Performance Review Process",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Employee Engagement",
+  "topic": "Link between Performance Reviews & Compensation",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Employee Engagement",
+  "topic": "Perform and Develop mindset",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Employee Engagement",
+  "topic": "360 performance reviews",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Employee Engagement",
+  "topic": "Individual Development Plans",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Employee Engagement",
+  "topic": "Measure of Employees' Engagement",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Employee Engagement",
+  "topic": "Maturity in Future of work",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Manager Academy",
+  "topic": "Maturity in Management Trainings",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Manager Academy",
+  "topic": "Onboarding of First-Time Managers",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Manager Academy",
+  "topic": "Curriculum Design for Managers",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Manager Academy",
+  "topic": "Curriculum per Management Level",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Talent Management",
+  "sub_bb": "Manager Academy",
+  "topic": "Measurement of Impact of Management Trainings",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Demand Generation Strategy",
+  "topic": "Market segmentation",
+  "atscale": 4.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Demand Generation Strategy",
+  "topic": "Dedicated demand generation budget",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Demand Generation Strategy",
+  "topic": "Brand awareness",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Demand Generation Strategy",
+  "topic": "Competitive analysis",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Team Structure & Individual Ownership",
+  "topic": "Demand Geneneration Manager",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Team Structure & Individual Ownership",
+  "topic": "Hiring prioritisation",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Team Structure & Individual Ownership",
+  "topic": "Advanced KPI system",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Team Structure & Individual Ownership",
+  "topic": "Pods of specialist contributors",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Alignment with Sales",
+  "topic": "Sales Alignment",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Alignment with Sales",
+  "topic": "Sales enablement",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Alignment with Sales",
+  "topic": "Cross-team communication",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Alignment with Sales",
+  "topic": "Improved Lead Forecasting",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Campaign Management",
+  "topic": "Experimentation Framework",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Campaign Management",
+  "topic": "Identifying scalable Lead Generation Campaigns",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Campaign Management",
+  "topic": "ROI & CAC calculation",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Campaign Management",
+  "topic": "Granular campaign reporting",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Full Funnel Data",
+  "topic": "Central performance dashboard",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Full Funnel Data",
+  "topic": "Lead management system",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Full Funnel Data",
+  "topic": "Full funnel definition",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Demand Generation",
+  "sub_bb": "Full Funnel Data",
+  "topic": "Monitoring of all Funnel Stage Indicators",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Prospection",
+  "topic": "Prospecting Methodologies & techniques",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Prospection",
+  "topic": "Tools & Technology",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Prospection",
+  "topic": "Target Market analysis",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Prospection",
+  "topic": "Performance monitoring",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Discovery & Qualification",
+  "topic": "Discovery Techniques",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Discovery & Qualification",
+  "topic": "Qualification Criterias",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Discovery & Qualification",
+  "topic": "Active listening",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Discovery & Qualification",
+  "topic": "Questionning skills",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Demo",
+  "topic": "Personalization & Customization",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Demo",
+  "topic": "Showcasing demo methodology",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Demo",
+  "topic": "Demo technical environment",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Demo",
+  "topic": "Post-demo follow-up strategies",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Proposal & Negotiation",
+  "topic": "Proposal customization",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Proposal & Negotiation",
+  "topic": "Proposal presentation process",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Proposal & Negotiation",
+  "topic": "Negotiation skills and strategies",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Proposal & Negotiation",
+  "topic": "Pricing conversations",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Closing",
+  "topic": "Sense of Urgency",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Closing",
+  "topic": "Building trust",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Closing",
+  "topic": "Existing clients reference checks",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Sales Execution",
+  "sub_bb": "Closing",
+  "topic": "Post-closing & relationship building",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Client Territory Planning",
+  "topic": "Sizes of book of business",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Client Territory Planning",
+  "topic": "Attribution of new customers in our Account Managers or Customer Success  team",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Client Territory Planning",
+  "topic": "Tiering & Customer segmentation",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Client Territory Planning",
+  "topic": "Alignement of customer segmentation with career path",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Client Territory Planning",
+  "topic": "Automation of tasks for the long tail",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Outreach Strategy, SLAs & Quotas",
+  "topic": "Service Level Agreements",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Outreach Strategy, SLAs & Quotas",
+  "topic": "Account Managers or Customer Success  quotas",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Outreach Strategy, SLAs & Quotas",
+  "topic": "Quota achievements",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Outreach Strategy, SLAs & Quotas",
+  "topic": "Product adoption and roll-out",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Portfolio Growth & Churn Prevention",
+  "topic": "Target-driven mindset",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Portfolio Growth & Churn Prevention",
+  "topic": "Opportunity mapping",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Portfolio Growth & Churn Prevention",
+  "topic": "Upselling skills",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Portfolio Growth & Churn Prevention",
+  "topic": "Competition knowledge",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Portfolio Growth & Churn Prevention",
+  "topic": "Product expertise",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Portfolio Growth & Churn Prevention",
+  "topic": "Seniority of Account Managers or Customer Success  reps",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Portfolio Growth & Churn Prevention",
+  "topic": "Churn prevention",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Portfolio Growth & Churn Prevention",
+  "topic": "Customer satisfaction",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Portfolio Growth & Churn Prevention",
+  "topic": "NPS",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Portfolio Growth & Churn Prevention",
+  "topic": "Business Reviews",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Client Relationship",
+  "sub_bb": "Portfolio Growth & Churn Prevention",
+  "topic": "Sanity checks",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Go-to-Market & Sales Process",
+  "topic": "Knowledge of Total Addressable Market",
+  "atscale": 3.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Go-to-Market & Sales Process",
+  "topic": "Quality of defintion of Persona and ICPs",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Go-to-Market & Sales Process",
+  "topic": "Fit between Go-to-Market and Annual Contract Value",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Go-to-Market & Sales Process",
+  "topic": "Definition and Optimization of Sales channels",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Go-to-Market & Sales Process",
+  "topic": "Definition of sales process",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Go-to-Market & Sales Process",
+  "topic": "Analysis of sales process",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Go-to-Market & Sales Process",
+  "topic": "Optimization of sales process",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Target-setting, Forecasts & Performance Monitoring",
+  "topic": "Target definition for sales population",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Target-setting, Forecasts & Performance Monitoring",
+  "topic": "Target definition for Account Managers or Customer Success teams",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Target-setting, Forecasts & Performance Monitoring",
+  "topic": "Compensation plans",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Target-setting, Forecasts & Performance Monitoring",
+  "topic": "Sales forecasts",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Target-setting, Forecasts & Performance Monitoring",
+  "topic": "Bottom-up and top-down forecasts for financial planning",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Target-setting, Forecasts & Performance Monitoring",
+  "topic": "Accuracy of forecasts",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Target-setting, Forecasts & Performance Monitoring",
+  "topic": "Sales forecast methodology",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Target-setting, Forecasts & Performance Monitoring",
+  "topic": "Monthly and Quarterly Business Reviews",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Sales Toolstack",
+  "topic": "Accuracy of data in CRM",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Sales Toolstack",
+  "topic": "Data visualization",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Sales Toolstack",
+  "topic": "Sales Automation (Outreach, OctopusCRM, Ringover)",
+  "atscale": 2.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Sales Toolstack",
+  "topic": "IP phone systems and call listening tools (Aircall, Ringover, Modjo, Gong.io, Unique)",
+  "atscale": 1.0
+ },
+ {
+  "bb": "Revenue Operations",
+  "sub_bb": "Sales Toolstack",
+  "topic": "Sales intelligence tools (Apollo, Zoominfo)",
+  "atscale": 1.0
+ }
+]

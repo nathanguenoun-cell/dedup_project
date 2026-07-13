@@ -225,6 +225,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     # ── HTTP verbs ──
     def do_GET(self):
         path = self.path.split('?', 1)[0]
+        if path == '/api/projects':
+            if not auth.current_user(self):
+                self._send_json(401, {"error": "Not authenticated."})
+                return
+            try:
+                import sheets_client
+                self._send_json(200, {"projects": sheets_client.list_projects()})
+            except Exception as e:
+                print(f"[projects] ERROR: {type(e).__name__}: {e}", flush=True)
+                self._send_json(502, {"error": str(e)})
+            return
         if path.startswith('/api/'):
             self._try_api('GET', b'')
             return
@@ -372,18 +383,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if not client:
                     self._send_json(400, {"error": "client name required."})
                     return
+                # Preferred source: pull the project's self-assessment straight from
+                # the master Google Sheet. Legacy fallback: an uploaded xlsx (base64).
+                project = (payload.get('project') or '').strip()
                 xlsx_b64 = payload.get('xlsx_b64') or ''
-                if not xlsx_b64:
-                    self._send_json(400, {"error": "self-assessment xlsx required."})
+                if project:
+                    import sheets_client
+                    assessment = sheets_client.fetch_assessment(project)
+                    if not any(v['client_avg'] is not None for v in assessment[1].values()):
+                        self._send_json(404, {"error": f"No self-assessment data for project '{project}'."})
+                        return
+                elif xlsx_b64:
+                    assessment = deck_builder.parse_self_assessment(
+                        _io.BytesIO(base64.b64decode(xlsx_b64)))
+                else:
+                    self._send_json(400, {"error": "project (or self-assessment xlsx) required."})
                     return
-                xlsx = _io.BytesIO(base64.b64decode(xlsx_b64))
                 template = os.path.join(DIR, 'templates', 'revenue_audit_template.pptx')
                 tk = payload.get('takeaways') or {}
                 print(f"[deck] takeaways blocks received: {list(tk.keys())}", flush=True)
                 print(f"[deck] expected blocks: {list(deck_builder.SLIDE_BB_MAP.values())}", flush=True)
                 t0 = time.time()
                 deck = deck_builder.build_deck(
-                    template, xlsx, client,
+                    template, assessment, client,
                     segment=(payload.get('segment') or None),
                     date=(payload.get('date') or None),
                     roadmap=(payload.get('roadmap') or None),

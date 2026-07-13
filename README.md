@@ -33,6 +33,9 @@ import an Excel/CSV → run analysis → review duplicates → export the clean 
    | `VOYAGE_API_KEY` | `pa-...` | **semantic embeddings** (recommended) — catches duplicates worded differently |
    | `OPENAI_API_KEY` | `sk-...` | alternative embeddings provider (used only if `VOYAGE_API_KEY` is unset) |
    | `EMBEDDING_MODEL` | `voyage-3.5` / `text-embedding-3-small` | optional embeddings model override |
+   | `GOOGLE_SA_JSON` | service-account JSON (string or file path) | **Final Deck** — auto-pull the self-assessment from the master Google Sheet. Share that sheet (viewer) with the service-account e-mail. |
+   | `SELF_ASSESSMENT_SHEET_ID` | spreadsheet id | optional override of the master sheet (default: the shared `SELF ASSESSMENT` sheet) |
+   | `SELF_ASSESSMENT_RESPONSES_TAB` | `raw_data` | optional override of the responses tab name |
 
    Railway injects `PORT` automatically; the server binds it on `0.0.0.0`.
 

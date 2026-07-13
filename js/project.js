@@ -1219,7 +1219,7 @@ function confirmRoadmap() {
 // uploads the self-assessment xlsx, the server places the Diagnosis Synthesis
 // dots and returns the .pptx for download.
 
-let _deckXlsx = null;   // { name, b64 }
+let _deckProjects = [];   // project names from the master sheet
 
 function renderDeck() {
   const panel = document.getElementById('mainPanel');
@@ -1227,14 +1227,15 @@ function renderDeck() {
   panel.innerHTML = `
     <div class="deck-wrap">
       <h2 class="tk-title">Generate the deck</h2>
-      <p class="tk-sub">Upload the self-assessment Excel export — the Diagnosis Synthesis
-         slides are filled with the scored dots and the deck downloads as a .pptx.</p>
+      <p class="tk-sub">Pick the project — its self-assessment is pulled automatically
+         from the master sheet, the Diagnosis Synthesis slides are filled with the
+         scored dots, and the deck downloads as a .pptx.</p>
 
       <div class="deck-form">
         <label class="deck-field">
           <span>Client name</span>
           <input id="deckClient" type="text" placeholder="e.g. Horizons Optical"
-                 value="${escapeHtml(PROJECT.name || '')}">
+                 value="${escapeHtml(PROJECT.name || '')}" oninput="onDeckProjectInput()">
         </label>
         <div class="deck-row">
           <label class="deck-field">
@@ -1243,34 +1244,54 @@ function renderDeck() {
           </label>
         </div>
         <label class="deck-field">
-          <span>Self-assessment (.xlsx)</span>
-          <input id="deckFile" type="file" accept=".xlsx" onchange="onDeckFile(event)">
-          <span class="deck-filehint" id="deckFileName">No file selected.</span>
+          <span>Project <em>(self-assessment)</em></span>
+          <input id="deckProject" type="text" list="deckProjectList" autocomplete="off"
+                 placeholder="Start typing… e.g. Circula" oninput="onDeckProjectInput()">
+          <datalist id="deckProjectList"></datalist>
+          <span class="deck-filehint" id="deckProjectHint">Loading projects…</span>
         </label>
 
         <button class="btn-primary" id="deckGenBtn" onclick="generateDeck()" disabled>
           Generate deck
         </button>
-        <span class="action-hint" id="deckHint">Upload the Excel file to enable generation.</span>
+        <span class="action-hint" id="deckHint">Select a project to enable generation.</span>
       </div>
     </div>`;
+  loadDeckProjects();
 }
 
-function onDeckFile(e) {
-  const file = e.target.files && e.target.files[0];
-  const nameEl = document.getElementById('deckFileName');
+async function loadDeckProjects() {
+  const dl = document.getElementById('deckProjectList');
+  const hint = document.getElementById('deckProjectHint');
+  try {
+    const res = await fetch('/api/projects', { credentials: 'same-origin' });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.json()).error || msg; } catch {}
+      throw new Error(msg);
+    }
+    _deckProjects = (await res.json()).projects || [];
+    dl.innerHTML = _deckProjects.map(p => `<option value="${escapeHtml(p)}"></option>`).join('');
+    hint.textContent = `${_deckProjects.length} project${_deckProjects.length === 1 ? '' : 's'} available.`;
+    // Pre-fill when the app project name matches a sheet project.
+    const match = _deckProjects.find(p => p.toLowerCase() === (PROJECT.name || '').toLowerCase());
+    if (match) { document.getElementById('deckProject').value = match; }
+    onDeckProjectInput();
+  } catch (err) {
+    hint.textContent = `Could not load projects: ${err.message}`;
+  }
+}
+
+function onDeckProjectInput() {
+  const project = (document.getElementById('deckProject').value || '').trim();
+  const client = (document.getElementById('deckClient').value || '').trim();
   const btn = document.getElementById('deckGenBtn');
   const hint = document.getElementById('deckHint');
-  if (!file) { _deckXlsx = null; btn.disabled = true; nameEl.textContent = 'No file selected.'; return; }
-  const reader = new FileReader();
-  reader.onload = () => {
-    // dataURL → strip the "data:...;base64," prefix
-    _deckXlsx = { name: file.name, b64: String(reader.result).split(',')[1] };
-    nameEl.textContent = file.name;
-    btn.disabled = false;
-    hint.textContent = 'Ready to generate.';
-  };
-  reader.readAsDataURL(file);
+  if (!btn) return;
+  btn.disabled = !(project && client);
+  hint.textContent = btn.disabled
+    ? 'Enter a client name and select a project to enable generation.'
+    : 'Ready to generate.';
 }
 
 // The roadmap built in the Roadmap stage, shaped for the deck's Gantt slide.
@@ -1309,10 +1330,11 @@ function buildRoadmapPayload() {
 
 async function generateDeck() {
   const client = document.getElementById('deckClient').value.trim();
+  const project = document.getElementById('deckProject').value.trim();
   const btn = document.getElementById('deckGenBtn');
   const hint = document.getElementById('deckHint');
   if (!client) { hint.textContent = 'Enter a client name first.'; return; }
-  if (!_deckXlsx) { hint.textContent = 'Upload the Excel file first.'; return; }
+  if (!project) { hint.textContent = 'Select a project first.'; return; }
 
   btn.disabled = true;
   hint.textContent = 'Generating…';
@@ -1323,9 +1345,9 @@ async function generateDeck() {
       credentials: 'same-origin',
       body: JSON.stringify({
         client,
+        project,
         segment: null,
         date: document.getElementById('deckDate').value.trim(),
-        xlsx_b64: _deckXlsx.b64,
         roadmap: buildRoadmapPayload(),
         takeaways: buildTakeawaysPayload(),
       }),

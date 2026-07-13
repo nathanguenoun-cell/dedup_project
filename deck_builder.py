@@ -558,13 +558,15 @@ def render_roadmap_slide(prs, roadmap):
                   align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
 
 
-def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, roadmap=None, takeaways=None):
+def build_deck(template_file, assessment, client_name, segment=None, date=None, roadmap=None, takeaways=None):
     """Generate the filled deck. Returns the .pptx as bytes.
 
-    `template_file` / `xlsx_file` are paths or binary file-likes.
+    `template_file` is a path or binary file-like. `assessment` is the pre-parsed
+    `(topics_by_bb, bb_avgs)` pair — from `parse_self_assessment` (uploaded xlsx)
+    or `sheets_client.fetch_assessment` (master Google Sheet, filtered by project).
     """
     prs = Presentation(template_file)
-    topics_by_bb, bb_avgs = parse_self_assessment(xlsx_file)
+    topics_by_bb, bb_avgs = assessment
 
     # Title-slide placeholders (cheap; harmless if a token is absent).
     title_map = {'[CLIENT]': client_name}
@@ -595,7 +597,8 @@ def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, r
         y_list = SLIDE_Y_CENTERS[slide_num]
         n = min(len(topics), len(y_list))
 
-        update_grades_and_labels(slide, aa, ca, client_name)
+        if ca is not None and aa is not None:
+            update_grades_and_labels(slide, aa, ca, client_name)
 
         spTree = slide.shapes._spTree
         for el in [s._element for s in slide.shapes if is_placeholder_dot(s)]:
@@ -603,8 +606,12 @@ def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, r
 
         for i in range(n):
             y_top = y_list[i] - DOT_WIDTH / 2
-            add_dot(slide, score_to_x(topics[i]['rating']), y_top, CLIENT_COLOR)
-            add_dot(slide, score_to_x(topics[i]['atscale']), y_top, ATSCALE_COLOR)
+            # A topic with no responses for this project has rating None → keep
+            # its row (positions stay aligned) but draw no client dot.
+            if topics[i]['rating'] is not None:
+                add_dot(slide, score_to_x(topics[i]['rating']), y_top, CLIENT_COLOR)
+            if topics[i]['atscale'] is not None:
+                add_dot(slide, score_to_x(topics[i]['atscale']), y_top, ATSCALE_COLOR)
 
     if roadmap:
         render_roadmap_slide(prs, roadmap)
@@ -624,7 +631,7 @@ if __name__ == "__main__":
     p.add_argument("--date", default=None)
     p.add_argument("--output", required=True)
     a = p.parse_args()
-    data = build_deck(a.template, a.xlsx, a.client, a.segment, a.date)
+    data = build_deck(a.template, parse_self_assessment(a.xlsx), a.client, a.segment, a.date)
     with open(a.output, "wb") as f:
         f.write(data)
     print(f"✓ Done → {a.output} ({len(data)//1024} KB)")
