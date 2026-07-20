@@ -61,31 +61,58 @@ function tfDistinctProjects(items) {
   return [...set].sort();
 }
 
-// For a chosen project: per-question average + per-block (avg of its Q averages).
+// For a chosen project: per-question averages, split by SERIES.
+// A single response answers each question more than once (the question blocks
+// repeat within one response). We split those occurrences by order: series 0 =
+// 1st occurrence ("Note 1"), series 1 = 2nd ("Note 2"), … Each series is
+// averaged separately across the project's responses (to 1 decimal), and each
+// building block gets one average per series (mean of its question averages).
 function tfComputeAverages(items, projectValue, qmap) {
   const rows = items.filter(it => tfProjectOf(it) === projectValue);
-  const perQ = {};   // questionId -> {sum, count}
-  rows.forEach(it => (it.answers || []).forEach(a => {
-    const num = tfNumeric(a);
-    if (num == null) return;
-    const key = a.field && a.field.id;
-    if (!key) return;
-    (perQ[key] || (perQ[key] = { sum: 0, count: 0, values: [] }));
-    perQ[key].sum += num;
-    perQ[key].count += 1;
-    perQ[key].values.push(num);
-  }));
+  const perQ = {};   // questionId -> [ {sum,count,values}, ... ] indexed by series
+  let maxSeries = 0;
 
-  const blocks = {};   // block -> {questions:[{title, avg, values}], avgs:[...]}
-  qmap.questions.forEach(q => {
-    const agg = perQ[q.id];
-    if (!agg || !agg.count) return;      // skip questions with no numeric answers
-    const avg = agg.sum / agg.count;
-    (blocks[q.block] || (blocks[q.block] = { questions: [], avgs: [] }));
-    blocks[q.block].questions.push({ title: q.title, avg, values: agg.values });
-    blocks[q.block].avgs.push(avg);
+  rows.forEach(it => {
+    // Group this response's numeric answers by field id, preserving order.
+    const byField = {};
+    (it.answers || []).forEach(a => {
+      const num = tfNumeric(a);
+      if (num == null) return;
+      const key = a.field && a.field.id;
+      if (!key) return;
+      (byField[key] || (byField[key] = [])).push(num);
+    });
+    // Each occurrence i feeds series i for that question.
+    Object.keys(byField).forEach(key => {
+      const series = (perQ[key] || (perQ[key] = []));
+      byField[key].forEach((v, i) => {
+        (series[i] || (series[i] = { sum: 0, count: 0, values: [] }));
+        series[i].sum += v; series[i].count += 1; series[i].values.push(v);
+        if (i + 1 > maxSeries) maxSeries = i + 1;
+      });
+    });
   });
-  return { rowsCount: rows.length, blocks };
+
+  const blocks = {};   // block -> {questions:[{title, series:[{avg,values}|null]}]}
+  qmap.questions.forEach(q => {
+    const s = perQ[q.id];
+    if (!s || !s.length) return;         // skip questions with no numeric answers
+    const series = s.map(x => (x && x.count) ? { avg: x.sum / x.count, values: x.values } : null);
+    (blocks[q.block] || (blocks[q.block] = { questions: [] }));
+    blocks[q.block].questions.push({ title: q.title, series });
+  });
+  // Per-block average for each series (mean of that block's question averages).
+  Object.values(blocks).forEach(b => {
+    const acc = [];
+    b.questions.forEach(q => q.series.forEach((sv, i) => {
+      if (!sv) return;
+      (acc[i] || (acc[i] = { sum: 0, count: 0 }));
+      acc[i].sum += sv.avg; acc[i].count += 1;
+    }));
+    b.blockAvgs = acc.map(a => (a && a.count) ? a.sum / a.count : null);
+  });
+
+  return { rowsCount: rows.length, blocks, maxSeries: Math.max(maxSeries, 1) };
 }
 
 async function importFromTypeform() {
@@ -188,26 +215,32 @@ function tfRenderAverages() {
     el.innerHTML = `<div style="color:var(--muted);margin-top:12px;">No numeric answers for this project.</div>`;
     return;
   }
+  const S = res.maxSeries;
+  const num = v => `<td style="text-align:right;font-variant-numeric:tabular-nums;">${v == null ? '—' : v.toFixed(1)}</td>`;
+  const seriesHead = Array.from({ length: S }, (_, i) => `<th style="text-align:right;">Note ${i + 1}</th>`).join('');
+
   el.innerHTML = `
     <div style="font-size:12px;color:var(--muted);margin:14px 0 6px;">
       ${res.rowsCount} response(s) for “${tfEsc(projectValue)}” · averages to 1 decimal
+      ${S > 1 ? `· each question has ${S} notes per response (shown as Note 1…${S})` : ''}
     </div>
     ${blockNames.map(bn => {
       const b = res.blocks[bn];
-      const blockAvg = b.avgs.reduce((a, c) => a + c, 0) / b.avgs.length;
       return `
         <table class="result-table" style="margin-bottom:16px;">
-          <thead><tr><th style="width:78%">${tfEsc(bn)}</th><th>Avg</th></tr></thead>
+          <thead><tr><th style="width:${78 - (S - 1) * 8}%">${tfEsc(bn)}</th>${seriesHead}</tr></thead>
           <tbody>
             ${b.questions.map(q => `<tr>
               <td class="td-takeaway">${tfEsc(q.title)}
-                <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;">n=${q.values.length} · [${q.values.join(', ')}]</div>
+                <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;">
+                  ${Array.from({ length: S }, (_, i) => q.series[i] ? `N${i + 1}=[${q.series[i].values.join(', ')}]` : '').filter(Boolean).join(' · ')}
+                </div>
               </td>
-              <td class="td-block" style="text-align:right;font-variant-numeric:tabular-nums;">${q.avg.toFixed(1)}</td>
+              ${Array.from({ length: S }, (_, i) => num(q.series[i] ? q.series[i].avg : null)).join('')}
             </tr>`).join('')}
             <tr style="font-weight:700;background:var(--surface);">
               <td>Building block average</td>
-              <td style="text-align:right;font-variant-numeric:tabular-nums;">${blockAvg.toFixed(1)}</td>
+              ${Array.from({ length: S }, (_, i) => num(b.blockAvgs[i])).join('')}
             </tr>
           </tbody>
         </table>`;
