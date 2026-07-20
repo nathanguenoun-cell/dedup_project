@@ -87,7 +87,7 @@ function tfComputeAverages(items, projectValue, qmap) {
     if (!agg || !agg.count) return;      // skip questions with no numeric answers
     const avg = agg.sum / agg.count;
     (blocks[q.block] || (blocks[q.block] = { questions: [], avgs: [] }));
-    blocks[q.block].questions.push({ title: q.title, avg, values: agg.values });
+    blocks[q.block].questions.push({ id: q.id, title: q.title, avg, values: agg.values });
     blocks[q.block].avgs.push(avg);
   });
   return { rowsCount: rows.length, blocks };
@@ -106,13 +106,11 @@ async function tfFetchTypeform() {
 
 // Ordered per-building-block rows with the client average (Typeform) per question.
 function tfBuildAssessment(items, projectValue, qmap) {
-  const res = tfComputeAverages(items, projectValue, qmap);   // {blocks:{bn:{questions:[{title,avg,values}]}}}
-  // Index the computed averages by block+title so we can look them up while
-  // walking the form's own question order below.
-  const SEP = String.fromCharCode(30);   // avoids block/title collisions in the lookup key
-  const byKey = {};
+  const res = tfComputeAverages(items, projectValue, qmap);
+  // Index computed averages by unique field id (titles can collide within a block).
+  const byId = {};
   Object.keys(res.blocks).forEach(bn => {
-    res.blocks[bn].questions.forEach(q => { byKey[bn + SEP + q.title] = q.avg; });
+    res.blocks[bn].questions.forEach(q => { byId[q.id] = q.avg; });
   });
 
   const blocksInOrder = [];
@@ -121,8 +119,7 @@ function tfBuildAssessment(items, projectValue, qmap) {
     if (q.type !== 'opinion_scale' && q.type !== 'rating' && q.type !== 'number') return;
     let entry = seen[q.block];
     if (!entry) { entry = seen[q.block] = { block: q.block, rows: [] }; blocksInOrder.push(entry); }
-    const key = q.block + SEP + q.title;
-    const avg = Object.prototype.hasOwnProperty.call(byKey, key) ? byKey[key] : null;
+    const avg = Object.prototype.hasOwnProperty.call(byId, q.id) ? byId[q.id] : null;
     entry.rows.push({ fieldId: q.id, title: q.title, client: (avg == null ? null : Number(avg.toFixed(1))) });
   });
   return { project: projectValue, blocks: blocksInOrder };
