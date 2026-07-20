@@ -181,6 +181,11 @@ function renderTypeformPanel(items) {
       ${projects.length ? '' : `<div style="color:var(--red);font-size:12px;margin-top:6px;">No project values found in hidden field "${PROJECT_HIDDEN_KEY}". See Debug below.</div>`}
     </div>
     <div id="tfAverages"></div>
+    <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--border);">
+      <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">🔍 Inspect a question (raw values, no computation)</label>
+      <input id="tfInspectInput" class="filter-select" style="min-width:320px;" placeholder="type part of a question title, e.g. headcount" oninput="tfInspectQuestion()">
+      <div id="tfInspect"></div>
+    </div>
     <details style="margin-top:18px;">
       <summary style="cursor:pointer;font-size:12px;color:var(--muted);">Debug — raw structure</summary>
       <div style="font-size:12px;font-weight:600;margin:10px 0 4px;">Questions &amp; building blocks (${_tfQMap.questions.length})</div>
@@ -257,6 +262,47 @@ function tfRenderAverages() {
           </tbody>
         </table>`;
     }).join('')}`;
+}
+
+// Debug inspector: for every form question whose title matches the typed term,
+// show — straight from the raw API items, with NO dedup/averaging — the ordered
+// list of that field's values in each response, next to its hidden.t. This is
+// the ground-truth view to compare against what was actually answered.
+function tfInspectQuestion() {
+  const el = document.getElementById('tfInspect');
+  if (!el) return;
+  const raw = (document.getElementById('tfInspectInput') || {}).value || '';
+  const term = raw.trim().toLowerCase();
+  if (!term) { el.innerHTML = ''; return; }
+
+  const items = (_tfResponses && _tfResponses.items) || [];
+  const matches = _tfQMap.questions.filter(q => (q.title || '').toLowerCase().includes(term));
+  if (!matches.length) {
+    el.innerHTML = `<div style="color:var(--muted);margin-top:8px;font-size:12px;">No question title matches “${tfEsc(raw)}”.</div>`;
+    return;
+  }
+
+  el.innerHTML = matches.map(m => {
+    const rows = items.map((it, i) => {
+      const vals = (it.answers || [])
+        .filter(a => a.field && (a.field.id === m.id || a.field.ref === m.ref))
+        .map(a => (tfNumeric(a) != null) ? tfNumeric(a) : (a.text ?? (a.choice && a.choice.label) ?? ''));
+      return `<tr>
+        <td class="td-block">#${i}</td>
+        <td class="td-block" style="color:var(--muted)">${tfEsc(String((it.hidden && it.hidden[PROJECT_HIDDEN_KEY]) ?? ''))}</td>
+        <td style="font-family:'DM Mono',monospace;">[${vals.join(', ')}]${vals.length > 1 ? ` <span style="color:var(--red)">← ${vals.length} values</span>` : ''}</td>
+      </tr>`;
+    }).join('');
+    return `
+      <div style="margin-top:12px;">
+        <div style="font-size:12px;font-weight:600;">${tfEsc(m.title)}</div>
+        <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:4px;">block=${tfEsc(m.block)} · id=${tfEsc(m.id)} · ref=${tfEsc(m.ref)}</div>
+        <table class="result-table">
+          <thead><tr><th>Resp</th><th>t</th><th>Raw values (API order)</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }).join('');
 }
 
 function tfEsc(s) {
