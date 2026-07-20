@@ -70,18 +70,19 @@ function tfComputeAverages(items, projectValue, qmap) {
     if (num == null) return;
     const key = a.field && a.field.id;
     if (!key) return;
-    (perQ[key] || (perQ[key] = { sum: 0, count: 0 }));
+    (perQ[key] || (perQ[key] = { sum: 0, count: 0, values: [] }));
     perQ[key].sum += num;
     perQ[key].count += 1;
+    perQ[key].values.push(num);
   }));
 
-  const blocks = {};   // block -> {questions:[{title, avg}], avgs:[...]}
+  const blocks = {};   // block -> {questions:[{title, avg, values}], avgs:[...]}
   qmap.questions.forEach(q => {
     const agg = perQ[q.id];
     if (!agg || !agg.count) return;      // skip questions with no numeric answers
     const avg = agg.sum / agg.count;
     (blocks[q.block] || (blocks[q.block] = { questions: [], avgs: [] }));
-    blocks[q.block].questions.push({ title: q.title, avg });
+    blocks[q.block].questions.push({ title: q.title, avg, values: agg.values });
     blocks[q.block].avgs.push(avg);
   });
   return { rowsCount: rows.length, blocks };
@@ -181,7 +182,9 @@ function tfRenderAverages() {
           <thead><tr><th style="width:78%">${tfEsc(bn)}</th><th>Avg</th></tr></thead>
           <tbody>
             ${b.questions.map(q => `<tr>
-              <td class="td-takeaway">${tfEsc(q.title)}</td>
+              <td class="td-takeaway">${tfEsc(q.title)}
+                <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;">n=${q.values.length} · [${q.values.join(', ')}]</div>
+              </td>
               <td class="td-block" style="text-align:right;font-variant-numeric:tabular-nums;">${q.avg.toFixed(1)}</td>
             </tr>`).join('')}
             <tr style="font-weight:700;background:var(--surface);">
