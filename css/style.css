@@ -1301,6 +1301,12 @@ body {
   border: 1px solid var(--border); border-radius: 6px; padding: 4px 7px;
   font-size: 12px; font-family: inherit; color: var(--text);
 }
+.rm-sel {
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
+  font-size: 12px; font-family: inherit; color: var(--text); background: var(--surface);
+}
+.rm-check { display: flex; align-items: center; gap: 5px; font-weight: 600; cursor: pointer; }
+.rm-check input { cursor: pointer; }
 
 .rm-main { display: flex; gap: 22px; align-items: flex-start; }
 .rm-chart { flex: 1 1 auto; min-width: 0; position: relative; padding-left: 22px; }

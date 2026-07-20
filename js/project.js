@@ -149,6 +149,7 @@ async function openProject(projectId) {
       labels: p.labels || {},
       months: Math.min(ROADMAP_MONTHS_MAX, Math.max(1, p.months || ROADMAP_MONTHS_DEFAULT)),
       startMonth: p.startMonth || null,
+      startDay: (typeof p.startDay === 'number' && p.startDay >= 1) ? p.startDay : null,
     };
     migrateDecisions();              // upgrade any legacy decision shapes
     recomputeRemoved();              // derive removed set from decisions (consistent)
@@ -1004,6 +1005,7 @@ function ensureRoadmapPlan() {
   }
   if (!plan.months) plan.months = ROADMAP_MONTHS_DEFAULT;
   if (plan.startMonth === undefined) plan.startMonth = null;
+  if (plan.startDay === undefined) plan.startDay = null;
   if (!Array.isArray(plan.order)) plan.order = [];
   plan.order = plan.order.filter(id => idset.has(id));
   ids.forEach(id => { if (!plan.order.includes(id)) plan.order.push(id); });
@@ -1131,7 +1133,10 @@ function roadmapMonthStart(plan) {
 }
 function roadmapMonthLabels(plan) {
   const { m } = roadmapMonthStart(plan);
-  return Array.from({ length: plan.months }, (_, i) => MONTH_NAMES[(m + i) % 12]);
+  const labels = Array.from({ length: plan.months }, (_, i) => MONTH_NAMES[(m + i) % 12]);
+  // A specific start day is shown on the first column, e.g. "Jan 15".
+  if (plan.startDay) labels[0] = `${MONTH_NAMES[m]} ${plan.startDay}`;
+  return labels;
 }
 function setRoadmapMonths(delta) {
   const plan = state.roadmapPlan;
@@ -1141,8 +1146,31 @@ function setRoadmapMonths(delta) {
   saveProjectData();
   renderRoadmap();
 }
-function setRoadmapStartMonth(value) {
-  state.roadmapPlan.startMonth = value || null;
+function rmDaysInMonth(y, m0) { return new Date(y, m0 + 1, 0).getDate(); }
+
+function _setRoadmapStart(y, m0) {
+  const plan = state.roadmapPlan;
+  plan.startMonth = `${y}-${String(m0 + 1).padStart(2, '0')}`;
+  if (plan.startDay) plan.startDay = Math.min(plan.startDay, rmDaysInMonth(y, m0));
+  saveProjectData();
+  renderRoadmap();
+}
+function setRoadmapStartMonthIdx(v) { const s = roadmapMonthStart(state.roadmapPlan); _setRoadmapStart(s.y, +v); }
+function setRoadmapStartYear(v)     { const s = roadmapMonthStart(state.roadmapPlan); _setRoadmapStart(+v, s.m); }
+function setRoadmapStartDay(v) {
+  state.roadmapPlan.startDay = Math.max(1, parseInt(v, 10) || 1);
+  saveProjectData();
+  renderRoadmap();
+}
+function toggleSpecificStart(on) {
+  const plan = state.roadmapPlan;
+  const s = roadmapMonthStart(plan);
+  if (on) {
+    if (!plan.startMonth) plan.startMonth = `${s.y}-${String(s.m + 1).padStart(2, '0')}`;
+    plan.startDay = Math.min(plan.startDay || 1, rmDaysInMonth(s.y, s.m));
+  } else {
+    plan.startDay = null;
+  }
   saveProjectData();
   renderRoadmap();
 }
@@ -1183,7 +1211,15 @@ function renderRoadmapGantt(candidates) {
     `<div class="rm-month" style="width:${monthW}%">${name}</div>`).join('');
   const monthLines = months.slice(1).map((_, i) =>
     `<div class="rm-monthline" style="left:${monthW * (i + 1)}%"></div>`).join('');
-  const startVal = (() => { const s = roadmapMonthStart(plan); return `${s.y}-${String(s.m + 1).padStart(2, '0')}`; })();
+  // Start-date controls: English month + year dropdowns, and an optional day.
+  const s = roadmapMonthStart(plan);
+  const baseY = new Date().getFullYear();
+  const yLo = Math.min(baseY - 1, s.y), yHi = Math.max(baseY + 5, s.y);
+  const monthOpts = MONTH_NAMES.map((nm, i) => `<option value="${i}" ${i === s.m ? 'selected' : ''}>${nm}</option>`).join('');
+  let yearOpts = '';
+  for (let y = yLo; y <= yHi; y++) yearOpts += `<option value="${y}" ${y === s.y ? 'selected' : ''}>${y}</option>`;
+  const dayOpts = Array.from({ length: rmDaysInMonth(s.y, s.m) }, (_, i) => i + 1)
+    .map(d => `<option value="${d}" ${d === plan.startDay ? 'selected' : ''}>${d}</option>`).join('');
 
   const rows = items.map(d => rmRowHtml(d)).join('');
 
@@ -1197,8 +1233,13 @@ function renderRoadmapGantt(candidates) {
         <div class="rm-ctrls">
           <div class="rm-cycle-ctrl">
             Start
-            <input type="month" class="rm-month-input" value="${startVal}"
-                   onchange="setRoadmapStartMonth(this.value)">
+            <select class="rm-sel" onchange="setRoadmapStartMonthIdx(this.value)">${monthOpts}</select>
+            <select class="rm-sel" onchange="setRoadmapStartYear(this.value)">${yearOpts}</select>
+          </div>
+          <div class="rm-cycle-ctrl">
+            <label class="rm-check"><input type="checkbox" ${plan.startDay ? 'checked' : ''}
+                   onchange="toggleSpecificStart(this.checked)"> Specific start date</label>
+            ${plan.startDay ? `<select class="rm-sel" onchange="setRoadmapStartDay(this.value)">${dayOpts}</select>` : ''}
           </div>
           <div class="rm-cycle-ctrl">
             Months
