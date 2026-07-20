@@ -1388,26 +1388,24 @@ function confirmRoadmap() {
 }
 
 // ─── Deck module ─────────────────────────────────────────────────
-// Generates the filled Revenue Audit deck from the bundled template: the user
-// uploads the self-assessment xlsx, the server places the Diagnosis Synthesis
-// dots and returns the .pptx for download.
-
-let _deckXlsx = null;   // { name, b64 }
+// Generates the filled Revenue Audit deck from the bundled template: the
+// Diagnosis Synthesis dots come from the Assessment step (client rating from
+// Typeform, Atscale positioned manually), and the server returns the .pptx
+// for download.
 
 function renderDeck() {
   const panel = document.getElementById('mainPanel');
   document.getElementById('actionRow').style.display = 'none';
+  const hasScores = (state.assessment.blocks || []).length > 0;
   panel.innerHTML = `
     <div class="deck-wrap">
       <h2 class="tk-title">Generate the deck</h2>
-      <p class="tk-sub">Upload the self-assessment Excel export — the Diagnosis Synthesis
-         slides are filled with the scored dots and the deck downloads as a .pptx.</p>
-
+      <p class="tk-sub">The Diagnosis Synthesis slides are filled from the Assessment step
+         (client dots from Typeform, Atscale dots you positioned). The deck downloads as a .pptx.</p>
       <div class="deck-form">
         <label class="deck-field">
           <span>Client name</span>
-          <input id="deckClient" type="text" placeholder="e.g. Horizons Optical"
-                 value="${escapeHtml(PROJECT.name || '')}">
+          <input id="deckClient" type="text" placeholder="e.g. Horizons Optical" value="${escapeHtml(PROJECT.name || '')}">
         </label>
         <div class="deck-row">
           <label class="deck-field">
@@ -1415,35 +1413,24 @@ function renderDeck() {
             <input id="deckDate" type="text" placeholder="e.g. June 2026">
           </label>
         </div>
-        <label class="deck-field">
-          <span>Self-assessment (.xlsx)</span>
-          <input id="deckFile" type="file" accept=".xlsx" onchange="onDeckFile(event)">
-          <span class="deck-filehint" id="deckFileName">No file selected.</span>
-        </label>
-
-        <button class="btn-primary" id="deckGenBtn" onclick="generateDeck()" disabled>
-          Generate deck
-        </button>
-        <span class="action-hint" id="deckHint">Upload the Excel file to enable generation.</span>
+        <button class="btn-primary" id="deckGenBtn" onclick="generateDeck()" ${hasScores ? '' : 'disabled'}>Generate deck</button>
+        <span class="action-hint" id="deckHint">${hasScores ? 'Ready to generate.' : 'Complete the Assessment step first.'}</span>
       </div>
     </div>`;
 }
 
-function onDeckFile(e) {
-  const file = e.target.files && e.target.files[0];
-  const nameEl = document.getElementById('deckFileName');
-  const btn = document.getElementById('deckGenBtn');
-  const hint = document.getElementById('deckHint');
-  if (!file) { _deckXlsx = null; btn.disabled = true; nameEl.textContent = 'No file selected.'; return; }
-  const reader = new FileReader();
-  reader.onload = () => {
-    // dataURL → strip the "data:...;base64," prefix
-    _deckXlsx = { name: file.name, b64: String(reader.result).split(',')[1] };
-    nameEl.textContent = file.name;
-    btn.disabled = false;
-    hint.textContent = 'Ready to generate.';
-  };
-  reader.readAsDataURL(file);
+// Assessment → deck scores: per building block, rows in order with client rating
+// (Typeform) and Atscale (manual). Missing values pass as null.
+function buildScoresPayload() {
+  const a = state.assessment;
+  const out = {};
+  (a.blocks || []).forEach(b => {
+    out[b.block] = b.rows.map(r => ({
+      rating:  r.client == null ? null : r.client,
+      atscale: a.atscale[r.fieldId] == null ? null : a.atscale[r.fieldId],
+    }));
+  });
+  return out;
 }
 
 // The roadmap built in the Roadmap stage, shaped for the deck's Gantt slide.
@@ -1485,7 +1472,8 @@ async function generateDeck() {
   const btn = document.getElementById('deckGenBtn');
   const hint = document.getElementById('deckHint');
   if (!client) { hint.textContent = 'Enter a client name first.'; return; }
-  if (!_deckXlsx) { hint.textContent = 'Upload the Excel file first.'; return; }
+  const scores = buildScoresPayload();
+  if (!Object.keys(scores).length) { hint.textContent = 'Complete the Assessment step first.'; return; }
 
   btn.disabled = true;
   hint.textContent = 'Generating…';
@@ -1498,7 +1486,7 @@ async function generateDeck() {
         client,
         segment: null,
         date: document.getElementById('deckDate').value.trim(),
-        xlsx_b64: _deckXlsx.b64,
+        scores,
         roadmap: buildRoadmapPayload(),
         takeaways: buildTakeawaysPayload(),
       }),
