@@ -419,25 +419,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(401, {"error": "Not authenticated."})
                 return
             try:
-                import base64, io as _io
                 import deck_builder
                 payload = json.loads(body) or {}
                 client = (payload.get('client') or '').strip()
                 if not client:
                     self._send_json(400, {"error": "client name required."})
                     return
-                xlsx_b64 = payload.get('xlsx_b64') or ''
-                if not xlsx_b64:
-                    self._send_json(400, {"error": "self-assessment xlsx required."})
+                scores = payload.get('scores') or {}
+                if not scores:
+                    self._send_json(400, {"error": "assessment scores required."})
                     return
-                xlsx = _io.BytesIO(base64.b64decode(xlsx_b64))
                 template = os.path.join(DIR, 'templates', 'revenue_audit_template.pptx')
                 tk = payload.get('takeaways') or {}
                 print(f"[deck] takeaways blocks received: {list(tk.keys())}", flush=True)
-                print(f"[deck] expected blocks: {list(deck_builder.SLIDE_BB_MAP.values())}", flush=True)
                 t0 = time.time()
                 deck = deck_builder.build_deck(
-                    template, xlsx, client,
+                    template, scores, client,
                     segment=(payload.get('segment') or None),
                     date=(payload.get('date') or None),
                     roadmap=(payload.get('roadmap') or None),

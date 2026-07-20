@@ -133,6 +133,36 @@ def parse_self_assessment(xlsx_file):
     return topics_by_bb, bb_avgs
 
 
+def bb_avgs_from_scores(scores):
+    """Per-block {client_avg, atscale_avg} from the JSON scores payload.
+    Averages ignore missing (None) values; a block with no values is omitted."""
+    out = {}
+    for bb, rows in (scores or {}).items():
+        rv = [r['rating']  for r in rows if r.get('rating')  is not None]
+        av = [r['atscale'] for r in rows if r.get('atscale') is not None]
+        if not rv and not av:
+            continue
+        out[bb] = {
+            'client_avg':  round(sum(rv) / len(rv), 1) if rv else 0.0,
+            'atscale_avg': round(sum(av) / len(av), 1) if av else 0.0,
+        }
+    return out
+
+
+def _scores_for_bb(scores, bb_name):
+    """Find the scores list for a slide's building block, matching keys fuzzily."""
+    for key, rows in (scores or {}).items():
+        if _match_bb_name(key, bb_name):
+            return rows
+    return None
+
+
+def _match_bb_name(a, b):
+    """Loose equality between two building-block names (case/punct/space-insensitive)."""
+    norm = lambda s: re.sub(r'[^a-z0-9]+', '', (s or '').lower())
+    return norm(a) == norm(b)
+
+
 def is_placeholder_dot(shape):
     """True for a dot sitting on the assessment axis (template or already placed)."""
     tol = 20000
@@ -558,13 +588,14 @@ def render_roadmap_slide(prs, roadmap):
                   align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
 
 
-def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, roadmap=None, takeaways=None):
+def build_deck(template_file, scores, client_name, segment=None, date=None, roadmap=None, takeaways=None):
     """Generate the filled deck. Returns the .pptx as bytes.
 
-    `template_file` / `xlsx_file` are paths or binary file-likes.
+    `template_file` is a path or binary file-like. `scores` is the JSON payload:
+    {block: [{rating, atscale}, ...]} in deck row order.
     """
     prs = Presentation(template_file)
-    topics_by_bb, bb_avgs = parse_self_assessment(xlsx_file)
+    bb_avgs = bb_avgs_from_scores(scores)
 
     # Title-slide placeholders (cheap; harmless if a token is absent).
     title_map = {'[CLIENT]': client_name}
@@ -580,20 +611,20 @@ def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, r
     for slide_num, bb_name in SLIDE_BB_MAP.items():
         slide = prs.slides[slide_num - 1]
 
-        # KT/initiative rendering is independent of the xlsx data — always run it.
+        # KT/initiative rendering is independent of the scores data — always run it.
         bb_items = _match_bb(bb_name, takeaways) if takeaways else []
         n_items = len(bb_items) if bb_items else 0
         print(f"[deck] slide {slide_num} '{bb_name}': {n_items} KT items", flush=True)
         render_takeaways_on_slide(slide, bb_items or [])
 
-        # Dots + grades require xlsx data; skip the rest if not available.
+        # Dots + grades require scores data; skip the rest if not available.
         avgs = bb_avgs.get(bb_name)
-        if avgs is None:
+        rows = _scores_for_bb(scores, bb_name)
+        if avgs is None or not rows:
             continue
         ca, aa = avgs['client_avg'], avgs['atscale_avg']
-        topics = topics_by_bb[bb_name]
         y_list = SLIDE_Y_CENTERS[slide_num]
-        n = min(len(topics), len(y_list))
+        n = min(len(rows), len(y_list))
 
         update_grades_and_labels(slide, aa, ca, client_name)
 
@@ -603,8 +634,10 @@ def build_deck(template_file, xlsx_file, client_name, segment=None, date=None, r
 
         for i in range(n):
             y_top = y_list[i] - DOT_WIDTH / 2
-            add_dot(slide, score_to_x(topics[i]['rating']), y_top, CLIENT_COLOR)
-            add_dot(slide, score_to_x(topics[i]['atscale']), y_top, ATSCALE_COLOR)
+            if rows[i].get('rating') is not None:
+                add_dot(slide, score_to_x(rows[i]['rating']), y_top, CLIENT_COLOR)
+            if rows[i].get('atscale') is not None:
+                add_dot(slide, score_to_x(rows[i]['atscale']), y_top, ATSCALE_COLOR)
 
     if roadmap:
         render_roadmap_slide(prs, roadmap)
@@ -624,7 +657,10 @@ if __name__ == "__main__":
     p.add_argument("--date", default=None)
     p.add_argument("--output", required=True)
     a = p.parse_args()
-    data = build_deck(a.template, a.xlsx, a.client, a.segment, a.date)
+    topics_by_bb, _ = parse_self_assessment(a.xlsx)
+    scores = {bb: [{'rating': t['rating'], 'atscale': t['atscale']} for t in rows]
+              for bb, rows in topics_by_bb.items()}
+    data = build_deck(a.template, scores, a.client, segment=a.segment, date=a.date)
     with open(a.output, "wb") as f:
         f.write(data)
     print(f"✓ Done → {a.output} ({len(data)//1024} KB)")
