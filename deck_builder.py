@@ -243,17 +243,19 @@ def update_grades_and_labels(slide, atscale_avg, client_avg, client_name):
         lft = shape.left / 914400
         top = shape.top / 914400
 
+        # Big headline grade (middle) → CLIENT average.
         if 2.0 < lft < 5.5 and 0.7 < top < 1.1 and _is_grade_value(text):
             for p in shape.text_frame.paragraphs:
                 for r in p.runs:
                     if _is_grade_value(r.text):
-                        r.text = f"{atscale_avg:.1f}"
+                        r.text = f"{client_avg:.1f}"
 
+        # Small grade (top-right) → ATSCALE average.
         if lft > 8.5 and 0.7 < top < 1.1 and _is_grade_value(text):
             for p in shape.text_frame.paragraphs:
                 for r in p.runs:
                     if _is_grade_value(r.text):
-                        r.text = f"{client_avg:.1f}"
+                        r.text = f"{atscale_avg:.1f}"
 
         for p in shape.text_frame.paragraphs:
             runs = p.runs
