@@ -1,21 +1,20 @@
 // ═══════════════════════════════════════════════════════════════
 // TYPEFORM LOADER — fetch responses, pick a project, compute averages
 //
-// Flow:
-//  1. Fetch the connected form (fixed server-side) + its responses.
-//  2. Walk the form definition → build question map (question title + its
-//     building block, i.e. the Typeform group/section it lives in) and detect
-//     the "project" field (the dropdown that exposes the project list).
-//  3. Let the user pick a project → filter responses to that project.
-//  4. For EACH question compute the average of all responses (1 decimal), and
-//     for EACH building block the average of its questions' averages.
-// A collapsible debug panel dumps the raw JSON so we can adjust detection if
-// the real structure differs from these assumptions.
+// Workflow:
+//  1. "Fetch responses" → load the connected form (fixed server-side) + its
+//     responses. This ONLY populates the selectors; no answer detail is shown.
+//  2. Pick which field identifies the project (auto-detected, overridable —
+//     includes hidden fields), then pick a project value.
+//  3. Then, and only then, show per-question averages (1 decimal) grouped by
+//     building block (the Typeform group/section), plus each block's average.
+// A collapsible debug panel dumps the raw JSON to adjust detection if needed.
 // ═══════════════════════════════════════════════════════════════
 
 let _tfForm = null;       // last fetched form definition
 let _tfResponses = null;  // last fetched responses payload ({items, total_items, …})
 let _tfQMap = null;       // {questions:[{id,ref,title,type,block}], projectField}
+let _tfSources = [];      // candidate "project" sources (form fields + hidden fields)
 
 function tfStatus(msg, type) {
   const el = document.getElementById('typeformStatus');
@@ -24,8 +23,7 @@ function tfStatus(msg, type) {
   el.style.color = type === 'error' ? 'var(--red)' : (type === 'ok' ? 'var(--green)' : 'var(--muted)');
 }
 
-// Pull a human-readable value out of a Typeform answer object. The value lives
-// under a key that depends on the answer `type` (text / choice / number / …).
+// Human-readable value of a Typeform answer (key depends on its `type`).
 function tfAnswerValue(a) {
   if (!a) return '';
   switch (a.type) {
@@ -44,30 +42,20 @@ function tfAnswerValue(a) {
   }
 }
 
-// Numeric value of an answer (rating / opinion_scale / number all come back as
-// type "number"). Returns null when the answer isn't numeric (e.g. the project
-// dropdown), so such questions are skipped in the averages.
+// Numeric value of an answer (rating / opinion_scale / number → type "number").
+// Returns null when not numeric, so such questions are skipped in the averages.
 function tfNumeric(a) {
   if (!a) return null;
   if (typeof a.number === 'number') return a.number;
   return null;
 }
 
-// Map an answer's field to its question title using the form definition.
-function tfFieldTitle(fieldId, fieldRef) {
-  if (_tfQMap) {
-    const q = _tfQMap.questions.find(x => x.id === fieldId || x.ref === fieldRef);
-    if (q) return q.title;
-  }
-  return fieldRef || fieldId || '(unknown)';
-}
-
-// Walk the form fields (recursing into groups) → flat question list tagged with
-// its building block (the enclosing group's title), plus the project field.
+// Walk form fields (recursing into groups) → flat question list tagged with its
+// building block (the enclosing group's title), plus best-guess project field.
 function tfBuildQuestionMap(fields) {
   const questions = [];
   let projectField = null;
-  const isProject = f => f.type === 'dropdown' || f.ref === 't' || /projec|projet/i.test(f.title || '');
+  const isProject = f => f.ref === 't' || f.type === 'dropdown' || /projec|projet/i.test(f.title || '');
 
   function walk(list, block) {
     (list || []).forEach(f => {
@@ -83,24 +71,49 @@ function tfBuildQuestionMap(fields) {
   return { questions, projectField };
 }
 
-// The project value of a single response (reads the project field's answer).
-function tfProjectValueOf(item, pf) {
-  if (!pf) return '';
-  const ans = (item.answers || []).find(a => a.field && (a.field.id === pf.id || a.field.ref === pf.ref));
+// Candidate project sources: every form field + every hidden field seen.
+function tfBuildSources(items) {
+  const sources = [];
+  _tfQMap.questions.forEach(q => sources.push({ kind: 'field', id: q.id, ref: q.ref, title: q.title || '(untitled)', type: q.type }));
+  const hiddenKeys = new Set();
+  items.forEach(it => { if (it.hidden) Object.keys(it.hidden).forEach(k => hiddenKeys.add(k)); });
+  [...hiddenKeys].forEach(k => sources.push({ kind: 'hidden', key: k, title: k }));
+  return sources;
+}
+
+function tfSourceKey(s) { return s.kind === 'hidden' ? `hidden:${s.key}` : `field:${s.id}`; }
+function tfSourceLabel(s) {
+  return s.kind === 'hidden' ? `${s.title} (hidden)` : `${s.title}${s.type ? ` [${s.type}]` : ''}`;
+}
+function tfFindSource(key) { return _tfSources.find(s => tfSourceKey(s) === key) || null; }
+
+// Default source: the auto-detected project field, else a hidden/field whose
+// name hints "project"/"t", else the first available source.
+function tfDefaultSourceKey() {
+  const pf = _tfQMap.projectField;
+  if (pf) { const s = _tfSources.find(x => x.kind === 'field' && x.id === pf.id); if (s) return tfSourceKey(s); }
+  const hinted = _tfSources.find(s => /^t$|projec|projet/i.test(s.kind === 'hidden' ? s.key : (s.title || '')));
+  if (hinted) return tfSourceKey(hinted);
+  return _tfSources.length ? tfSourceKey(_tfSources[0]) : '';
+}
+
+// The project value of a response for a chosen source (field answer or hidden).
+function tfSourceValue(item, source) {
+  if (!source) return '';
+  if (source.kind === 'hidden') return (item.hidden && item.hidden[source.key] != null) ? String(item.hidden[source.key]) : '';
+  const ans = (item.answers || []).find(a => a.field && (a.field.id === source.id || a.field.ref === source.ref));
   return ans ? tfAnswerValue(ans) : '';
 }
 
-// Distinct project values across all responses.
-function tfDistinctProjects(items, pf) {
-  if (!pf) return [];
+function tfDistinctValues(items, source) {
   const set = new Set();
-  items.forEach(it => { const v = tfProjectValueOf(it, pf); if (v) set.add(v); });
+  items.forEach(it => { const v = tfSourceValue(it, source); if (v) set.add(v); });
   return [...set].sort();
 }
 
 // For a chosen project: per-question average + per-block (avg of its Q averages).
-function tfComputeAverages(items, projectValue, pf, qmap) {
-  const rows = items.filter(it => tfProjectValueOf(it, pf) === projectValue);
+function tfComputeAverages(items, projectValue, source, qmap) {
+  const rows = items.filter(it => tfSourceValue(it, source) === projectValue);
   const perQ = {};   // questionId -> {sum, count}
   rows.forEach(it => (it.answers || []).forEach(a => {
     const num = tfNumeric(a);
@@ -148,6 +161,7 @@ async function importFromTypeform() {
     const fields = Array.isArray(_tfForm.fields) ? _tfForm.fields : [];
     const items  = Array.isArray(_tfResponses.items) ? _tfResponses.items : [];
     _tfQMap = tfBuildQuestionMap(fields);
+    _tfSources = tfBuildSources(items);
 
     tfStatus(`✓ ${_tfForm.title || 'form'} — ${_tfQMap.questions.length} questions · ${_tfResponses.total_items ?? items.length} responses`, 'ok');
     renderTypeformPanel(items);
@@ -156,25 +170,26 @@ async function importFromTypeform() {
   }
 }
 
+// Step 1 render: selectors only (project-field chooser + project dropdown).
+// No averages until a project is chosen.
 function renderTypeformPanel(items) {
   const el = document.getElementById('typeformResult');
   if (!el) return;
-  const pf = _tfQMap.projectField;
-  const projects = tfDistinctProjects(items, pf);
-
-  const selectorHtml = pf
-    ? `<div style="display:flex;align-items:center;gap:10px;margin-top:16px;">
-         <label style="font-size:13px;font-weight:600;">Project</label>
-         <select id="tfProjectSelect" class="filter-select" style="min-width:220px;" onchange="tfRenderAverages()">
-           ${projects.map(p => `<option value="${tfEsc(p)}">${tfEsc(p)}</option>`).join('') || '<option value="">(no project values)</option>'}
-         </select>
-       </div>`
-    : `<div style="margin-top:16px;color:var(--red);font-size:13px;">
-         No project field detected. Check the raw JSON below (looked for a dropdown / ref "t" / a title containing "project").
-       </div>`;
+  const defKey = tfDefaultSourceKey();
 
   el.innerHTML = `
-    ${selectorHtml}
+    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin-top:16px;">
+      <div>
+        <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Project field</label>
+        <select id="tfSourceSelect" class="filter-select" style="min-width:220px;" onchange="tfOnSourceChange()">
+          ${_tfSources.map(s => `<option value="${tfEsc(tfSourceKey(s))}" ${tfSourceKey(s) === defKey ? 'selected' : ''}>${tfEsc(tfSourceLabel(s))}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Project</label>
+        <select id="tfProjectSelect" class="filter-select" style="min-width:240px;" onchange="tfRenderAverages()"></select>
+      </div>
+    </div>
     <div id="tfAverages"></div>
     <details style="margin-top:18px;">
       <summary style="cursor:pointer;font-size:12px;color:var(--muted);">Debug — raw structure</summary>
@@ -195,25 +210,44 @@ function renderTypeformPanel(items) {
       <pre style="max-height:260px;overflow:auto;background:var(--surface);padding:10px;border-radius:6px;font-size:11px;">${tfEsc(JSON.stringify(items[0] || null, null, 2))}</pre>
     </details>`;
 
-  if (pf && projects.length) tfRenderAverages();
+  tfOnSourceChange();   // populate the project dropdown from the default field
 }
 
+// Repopulate the project dropdown when the project-field choice changes.
+function tfOnSourceChange() {
+  const items = (_tfResponses && _tfResponses.items) || [];
+  const srcSel = document.getElementById('tfSourceSelect');
+  const projSel = document.getElementById('tfProjectSelect');
+  const avgEl = document.getElementById('tfAverages');
+  if (avgEl) avgEl.innerHTML = '';
+  if (!srcSel || !projSel) return;
+
+  const source = tfFindSource(srcSel.value);
+  const values = tfDistinctValues(items, source);
+  projSel.innerHTML = `<option value="">— Select a project —</option>` +
+    values.map(v => `<option value="${tfEsc(v)}">${tfEsc(v)}</option>`).join('');
+}
+
+// Step 2 render: averages for the chosen project (only once one is selected).
 function tfRenderAverages() {
   const el = document.getElementById('tfAverages');
   if (!el) return;
   const items = (_tfResponses && _tfResponses.items) || [];
-  const pf = _tfQMap.projectField;
+  const srcSel = document.getElementById('tfSourceSelect');
   const sel = document.getElementById('tfProjectSelect');
+  const source = srcSel ? tfFindSource(srcSel.value) : null;
   const projectValue = sel ? sel.value : '';
-  const res = tfComputeAverages(items, projectValue, pf, _tfQMap);
-  const blockNames = Object.keys(res.blocks);
 
+  if (!projectValue) { el.innerHTML = ''; return; }   // nothing until a project is picked
+
+  const res = tfComputeAverages(items, projectValue, source, _tfQMap);
+  const blockNames = Object.keys(res.blocks);
   if (!blockNames.length) {
     el.innerHTML = `<div style="color:var(--muted);margin-top:12px;">No numeric answers for this project.</div>`;
     return;
   }
   el.innerHTML = `
-    <div style="font-size:12px;color:var(--muted);margin:12px 0;">
+    <div style="font-size:12px;color:var(--muted);margin:14px 0 6px;">
       ${res.rowsCount} response(s) for “${tfEsc(projectValue)}” · averages to 1 decimal
     </div>
     ${blockNames.map(bn => {
