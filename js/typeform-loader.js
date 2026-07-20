@@ -147,13 +147,51 @@ async function importFromTypeform() {
   }
 }
 
+// Flatten form fields (recursing into groups) → leaf fields in form order.
+function tfFlatFields(fields) {
+  const out = [];
+  (function walk(list) {
+    (list || []).forEach(f => {
+      if (f.type === 'group' && f.properties && Array.isArray(f.properties.fields)) walk(f.properties.fields);
+      else out.push(f);
+    });
+  })(fields);
+  return out;
+}
+
+// Diagnostic: does the DEFINITION repeat field ids, or only the RESPONSES?
+function tfDiagnostics(items) {
+  const count = (arr) => { const m = {}; arr.forEach(x => { if (x != null) m[x] = (m[x] || 0) + 1; }); return m; };
+  const maxOf = (m) => { const v = Object.values(m); return v.length ? Math.max(...v) : 0; };
+
+  const flat = tfFlatFields(Array.isArray(_tfForm.fields) ? _tfForm.fields : []);
+  const defCounts = count(flat.map(f => f.id));
+  const r0 = items[0];
+  const ra = (r0 && r0.answers) || [];
+  const respCounts = count(ra.map(a => a.field && a.field.id));
+
+  return {
+    defFields: flat.length,
+    defDistinct: Object.keys(defCounts).length,
+    defMaxIdRepeat: maxOf(defCounts),
+    respAnswers: ra.length,
+    respDistinct: Object.keys(respCounts).length,
+    respMaxIdRepeat: maxOf(respCounts),
+  };
+}
+
 // Step 1 render: just the Project dropdown (populated from hidden "t").
 function renderTypeformPanel(items) {
   const el = document.getElementById('typeformResult');
   if (!el) return;
   const projects = tfDistinctProjects(items);
+  const d = tfDiagnostics(items);
 
   el.innerHTML = `
+    <div style="margin-top:12px;padding:8px 10px;background:var(--surface);border-radius:6px;font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);">
+      diag — form: ${d.defFields} fields (${d.defDistinct} distinct ids, max id repeat ${d.defMaxIdRepeat})
+      · response[0]: ${d.respAnswers} answers (${d.respDistinct} distinct ids, max id repeat ${d.respMaxIdRepeat})
+    </div>
     <div style="margin-top:16px;">
       <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Project</label>
       <select id="tfProjectSelect" class="filter-select" style="min-width:260px;" onchange="tfRenderAverages()">
