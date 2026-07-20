@@ -86,6 +86,8 @@ def init_db():
             conn.execute("ALTER TABLE project_data ADD COLUMN takeaways TEXT NOT NULL DEFAULT '{}'")
         if "roadmap" not in cols:
             conn.execute("ALTER TABLE project_data ADD COLUMN roadmap TEXT NOT NULL DEFAULT '{}'")
+        if "assessment" not in cols:
+            conn.execute("ALTER TABLE project_data ADD COLUMN assessment TEXT NOT NULL DEFAULT '{}'")
         conn.commit()
     finally:
         conn.close()
@@ -311,20 +313,21 @@ def get_project_data(project_id):
             "failed_blocks": json.loads(row["failed_blocks"]) if "failed_blocks" in keys and row["failed_blocks"] else [],
             "takeaways": json.loads(row["takeaways"]) if "takeaways" in keys and row["takeaways"] else {},
             "roadmap": json.loads(row["roadmap"]) if "roadmap" in keys and row["roadmap"] else {},
+            "assessment": json.loads(row["assessment"]) if "assessment" in keys and row["assessment"] else {},
             "updated_at": row["updated_at"],
         }
     finally:
         conn.close()
 
 
-def save_project_data(project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks=None, takeaways=None, roadmap=None):
+def save_project_data(project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks=None, takeaways=None, roadmap=None, assessment=None):
     """Last-write-wins persistence of the shared dedup state."""
     conn = connect()
     try:
         conn.execute(
             """
-            INSERT INTO project_data (project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks, takeaways, roadmap, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO project_data (project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks, takeaways, roadmap, assessment, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(project_id) DO UPDATE SET
                 file_name=excluded.file_name,
                 raw_data=excluded.raw_data,
@@ -334,6 +337,7 @@ def save_project_data(project_id, file_name, raw_data, groups, decisions, remove
                 failed_blocks=excluded.failed_blocks,
                 takeaways=excluded.takeaways,
                 roadmap=excluded.roadmap,
+                assessment=excluded.assessment,
                 updated_at=excluded.updated_at
             """,
             (
@@ -346,6 +350,7 @@ def save_project_data(project_id, file_name, raw_data, groups, decisions, remove
                 json.dumps(failed_blocks or []),
                 json.dumps(takeaways or {}),
                 json.dumps(roadmap or {}),
+                json.dumps(assessment or {}),
                 now(),
             ),
         )

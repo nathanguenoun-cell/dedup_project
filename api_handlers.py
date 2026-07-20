@@ -143,6 +143,7 @@ def _save_data(user, pid, body):
         body.get("failed_blocks", []),
         body.get("takeaways", {}),
         body.get("roadmap", {}),
+        body.get("assessment", {}),
     )
     status = body.get("status")
     if status in ("draft", "review", "completed"):
