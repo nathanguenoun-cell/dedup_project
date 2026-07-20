@@ -589,6 +589,127 @@ def render_roadmap_slide(prs, roadmap):
                   align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
 
 
+# ── Assessment heatmap (slides 19 & 20) ──────────────────────────────────────
+# Each labeled cell on the two "Assessments" slides is a sub-category ("square").
+# Its background is painted with the 1..5 band colour of the average score of the
+# diagnostic questions it groups. The question→square grouping is read from the
+# Diagnosis Synthesis slides (SLIDE_BB_MAP): the left-hand sub-category box and the
+# topic rows beneath it — row i lines up with scores row i (same order the dots are
+# placed in). Slide 19 uses client ratings, slide 20 the Atscale scores.
+GRID_CLIENT_SLIDE  = 19   # 1-based
+GRID_ATSCALE_SLIDE = 20
+GRID_TEMPLATE_FILL = 'FFF2CC'          # uniform fill of the cells in the template
+BAND_COLORS = {1: 'EBC6D0', 2: 'FCE5CD', 3: 'FFF3CC', 4: 'D9EBD3', 5: 'B7D7A8'}
+
+# Sub-category labels differ slightly between the diagnosis slides and slides 19/20.
+_SQUARE_ALIASES = None   # built lazily below once _sq_key exists
+
+
+def _sq_key(text):
+    """Normalise a square/sub-category label for matching (case/punct/plural-insensitive)."""
+    return re.sub(r'[^a-z0-9]+', '', (text or '').lower()).rstrip('s')
+
+
+def _square_aliases():
+    global _SQUARE_ALIASES
+    if _SQUARE_ALIASES is None:
+        _SQUARE_ALIASES = {
+            _sq_key('Playbooks'): _sq_key('Sales Playbook'),
+            _sq_key('Team Structure & Individual Ownership'): _sq_key('Team Structure & Ownership'),
+            _sq_key('Go-to-Market & Sales Process'): _sq_key('Go-to market & process'),
+            _sq_key('Target-setting, Forecasts & Performance Monitoring'): _sq_key('Target-Setting, Compensation Plans, Forecasts'),
+        }
+    return _SQUARE_ALIASES
+
+
+def _diagnosis_squares_by_row(prs):
+    """{pillar: [square_key per topic row, in row (top) order]} read from the
+    Diagnosis Synthesis slides."""
+    aliases = _square_aliases()
+    out = {}
+    for slide_num, pillar in SLIDE_BB_MAP.items():
+        slide = prs.slides[slide_num - 1]
+        labels, rows = [], []
+        for sh in slide.shapes:
+            if not sh.has_text_frame or sh.left is None or sh.top is None:
+                continue
+            txt = sh.text_frame.text.strip()
+            if not txt:
+                continue
+            L = sh.left / 914400
+            T = sh.top / 914400
+            W = (sh.width or 0) / 914400
+            if 0.4 < L < 0.75 and 0.9 < W < 1.4 and T > 1.5:      # sub-category label (left box)
+                labels.append((T, txt))
+            elif 1.6 < L < 2.0 and T > 1.5:                        # topic row (question)
+                rows.append((T, txt))
+        labels.sort(); rows.sort()
+        seq = []
+        for T, _ in rows:
+            above = [lab for (lt, lab) in labels if lt <= T + 0.05]
+            key = _sq_key(above[-1]) if above else ''
+            seq.append(aliases.get(key, key))
+        out[pillar] = seq
+    return out
+
+
+def _band(vals):
+    if not vals:
+        return None
+    avg = sum(vals) / len(vals)
+    return min(5, max(1, int(avg + 0.5)))          # nearest (round half up), clamped 1..5
+
+
+def _is_grid_cell(sh):
+    try:
+        return sh.has_text_frame and str(sh.fill.fore_color.rgb) == GRID_TEMPLATE_FILL
+    except Exception:
+        return False
+
+
+def _fill(sh, hex_color):
+    sh.fill.solid()
+    sh.fill.fore_color.rgb = RGBColor.from_string(hex_color)
+
+
+def _paint_grid_slide(slide, bands):
+    """Paint the sub-category cells with their band colour, and colour the
+    top-right legend cells 1..5 so the scale matches."""
+    legend = sorted((sh for sh in slide.shapes
+                     if _is_grid_cell(sh) and (sh.top or 0) / 914400 < 0.6),
+                    key=lambda s: s.left or 0)
+    for i, sh in enumerate(legend[:5]):
+        _fill(sh, BAND_COLORS[i + 1])
+    for sh in slide.shapes:
+        if not _is_grid_cell(sh) or (sh.top or 0) / 914400 < 0.6:
+            continue
+        b = bands.get(_sq_key(sh.text_frame.text.strip()))
+        if b is not None:
+            _fill(sh, BAND_COLORS[b])
+
+
+def color_assessment_grids(prs, scores):
+    """Colour the two Assessments heatmap slides (19 client, 20 Atscale) from scores."""
+    row_sq = _diagnosis_squares_by_row(prs)
+    client, atscale = {}, {}
+    for slide_num, pillar in SLIDE_BB_MAP.items():
+        rows = _scores_for_bb(scores, pillar)
+        if not rows:
+            continue
+        seq = row_sq.get(pillar, [])
+        for i, r in enumerate(rows):
+            if i >= len(seq) or not seq[i]:
+                continue
+            if r.get('rating') is not None:
+                client.setdefault(seq[i], []).append(r['rating'])
+            if r.get('atscale') is not None:
+                atscale.setdefault(seq[i], []).append(r['atscale'])
+    if GRID_CLIENT_SLIDE - 1 < len(prs.slides):
+        _paint_grid_slide(prs.slides[GRID_CLIENT_SLIDE - 1], {k: _band(v) for k, v in client.items()})
+    if GRID_ATSCALE_SLIDE - 1 < len(prs.slides):
+        _paint_grid_slide(prs.slides[GRID_ATSCALE_SLIDE - 1], {k: _band(v) for k, v in atscale.items()})
+
+
 def build_deck(template_file, scores, client_name, segment=None, date=None, roadmap=None, takeaways=None):
     """Generate the filled deck. Returns the .pptx as bytes.
 
@@ -640,6 +761,10 @@ def build_deck(template_file, scores, client_name, segment=None, date=None, road
                 add_dot(slide, score_to_x(rows[i]['rating']), y_top, CLIENT_COLOR)
             if rows[i].get('atscale') is not None:
                 add_dot(slide, score_to_x(rows[i]['atscale']), y_top, ATSCALE_COLOR)
+
+    # Assessments heatmap slides (19 client / 20 Atscale): colour the sub-category
+    # cells by the band of their questions' average score.
+    color_assessment_grids(prs, scores)
 
     if roadmap:
         render_roadmap_slide(prs, roadmap)
