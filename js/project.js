@@ -629,51 +629,84 @@ function assessmentPick() {
   renderAssessmentBoard();
 }
 
+// Score (1..5) → horizontal % position, centered inside its column band, so
+// dots sit in the middle of columns 1..5 exactly like the deck slide.
+function asPosPct(s) { return ((s - 0.5) / 5) * 100; }
+
 function renderAssessmentBoard() {
   const panel = document.getElementById('mainPanel');
   const a = state.assessment;
-  const blocks = a.blocks;
-  const idx = Math.min(state.asBlockIdx, blocks.length - 1);
-  const blk = blocks[idx];
+  const colHead = [1, 2, 3, 4, 5].map(n => `<div class="as-col-h c${n}">${n}</div>`).join('');
 
-  const tabs = blocks.map((b, i) =>
-    `<button class="tk-tab ${i === idx ? 'active' : ''}" onclick="state.asBlockIdx=${i};renderAssessmentBoard()">${escapeHtml(b.block)}</button>`
-  ).join('');
-
-  const rows = blk.rows.map(r => {
-    const at = a.atscale[r.fieldId];
-    const clientPct = r.client == null ? null : ((r.client - 1) / 4) * 100;
-    const atPct = at == null ? null : ((at - 1) / 4) * 100;
-    const ticks = [0, 25, 50, 75, 100].map(p => `<div class="as-tick" style="left:${p}%"></div>`).join('');
+  const groups = a.blocks.map(b => {
+    const cAvg = avgOf(b.rows.map(r => r.client));
+    const aAvg = avgOf(b.rows.map(r => a.atscale[r.fieldId]));
+    const rows = b.rows.map(r => {
+      const at = a.atscale[r.fieldId];
+      const bands = [1, 2, 3, 4, 5].map(n => `<div class="as-band c${n}"></div>`).join('');
+      const clientDot = r.client == null ? '' :
+        `<div class="as-dot as-dot-client" style="left:${asPosPct(r.client)}%"></div>`;
+      const atDot = at == null ? '' :
+        `<div class="as-dot as-dot-atscale" style="left:${asPosPct(at)}%"></div>`;
+      return `
+        <div class="as-grow">
+          <div class="as-rtitle">${escapeHtml(r.title)}</div>
+          <div class="as-axis" data-field="${escapeHtml(r.fieldId)}" onpointerdown="asAxisDown(event)">
+            ${bands}${clientDot}${atDot}
+          </div>
+          <div class="as-rvals">
+            <span class="as-cl">Client <b>${r.client == null ? '–' : r.client.toFixed(1)}</b></span>
+            <span class="as-at">AtScale
+              <input type="number" min="1" max="5" step="0.1" value="${at == null ? '' : at}"
+                     onchange="asSetValue('${escapeHtml(r.fieldId)}', this.value)"
+                     onpointerdown="event.stopPropagation()">
+            </span>
+          </div>
+        </div>`;
+    }).join('');
     return `
-      <div class="as-row">
-        <div class="as-title">${escapeHtml(r.title)}</div>
-        <div class="as-axis" data-field="${escapeHtml(r.fieldId)}" onpointerdown="asAxisDown(event)">
-          <div class="as-track"></div>${ticks}
-          ${clientPct == null ? '' : `<div class="as-dot as-dot-client" style="left:${clientPct}%"></div>`}
-          ${atPct == null ? '' : `<div class="as-dot as-dot-atscale" style="left:${atPct}%"></div>`}
-        </div>
-        <div class="as-val">C ${r.client == null ? '–' : r.client.toFixed(1)} · A ${at == null ? '–' : at.toFixed(1)}</div>
+      <div class="as-group">
+        <div class="as-glabel"><div class="as-glabel-box">
+          <div class="as-gname">${escapeHtml(b.block)}</div>
+          <div class="as-gavg">Client ${cAvg == null ? '–' : cAvg.toFixed(1)} · AtScale ${aAvg == null ? '–' : aAvg.toFixed(1)}</div>
+        </div></div>
+        <div class="as-gbody">${rows}</div>
       </div>`;
   }).join('');
 
-  const cAvg = avgOf(blk.rows.map(r => r.client));
-  const aAvg = avgOf(blk.rows.map(r => a.atscale[r.fieldId]));
   panel.innerHTML = `
-    <div class="tk-wrap">
-      <h2 class="tk-title">Assessment — ${escapeHtml(a.project)}</h2>
-      <div class="tk-tabs">${tabs}</div>
-      <div style="font-size:12px;color:var(--muted);margin:10px 0;">
-        Block average — client ${cAvg == null ? '–' : cAvg.toFixed(1)} · Atscale ${aAvg == null ? '–' : aAvg.toFixed(1)}
-        · <span style="color:#DDC7C7">●</span> client (fixed) <span style="color:#6f93c8">●</span> Atscale (drag)
+    <div class="tk-wrap as-page">
+      <h2 class="tk-title as-maintitle">Assessment vs. best in class</h2>
+      <div class="as-sub">${escapeHtml(a.project)}
+        · <span class="as-legend as-dot-client"></span> Client (Typeform, fixed)
+        · <span class="as-legend as-dot-atscale"></span> AtScale (drag or type)</div>
+      <div class="as-head">
+        <div class="as-head-l"></div>
+        <div class="as-cols">${colHead}</div>
+        <div class="as-head-r"></div>
       </div>
-      ${rows}
+      ${groups}
     </div>`;
 }
 
 function avgOf(xs) {
   const v = xs.filter(x => x != null);
   return v.length ? v.reduce((a, c) => a + c, 0) / v.length : null;
+}
+
+// Manual entry of the AtScale note (in addition to dragging). Empty clears it.
+function asSetValue(fieldId, raw) {
+  const s = String(raw).trim();
+  if (s === '') {
+    delete state.assessment.atscale[fieldId];
+  } else {
+    let v = parseFloat(s);
+    if (isNaN(v)) return;
+    v = Math.max(1, Math.min(5, round1(v)));
+    state.assessment.atscale[fieldId] = v;
+  }
+  saveProjectData();
+  renderAssessmentBoard();
 }
 
 // One active axis drag at a time. Pointer capture keeps tracking even if the
@@ -684,7 +717,7 @@ function asScoreFromEvent(axisEl, e) {
   const rect = axisEl.getBoundingClientRect();
   let pct = (e.clientX - rect.left) / rect.width;
   pct = Math.max(0, Math.min(1, pct));
-  return 1 + pct * 4;                 // 1..5, continuous
+  return Math.max(1, Math.min(5, 0.5 + pct * 5));   // inverse of asPosPct, clamped 1..5
 }
 
 function asAxisDown(e) {
@@ -699,7 +732,7 @@ function asAxisDown(e) {
   _asDrag = { field, axisEl, dotEl };
   const score = round1(asScoreFromEvent(axisEl, e));
   state.assessment.atscale[field] = score;
-  dotEl.style.left = ((score - 1) / 4 * 100) + '%';   // move in place, no re-render
+  dotEl.style.left = asPosPct(score) + '%';   // move in place, no re-render
   axisEl.setPointerCapture(e.pointerId);
   axisEl.addEventListener('pointermove', asAxisMove);
   axisEl.addEventListener('pointerup', asAxisUp, { once: true });
@@ -709,7 +742,7 @@ function asAxisMove(e) {
   if (!_asDrag) return;
   const score = round1(asScoreFromEvent(_asDrag.axisEl, e));
   state.assessment.atscale[_asDrag.field] = score;
-  _asDrag.dotEl.style.left = ((score - 1) / 4 * 100) + '%';
+  _asDrag.dotEl.style.left = asPosPct(score) + '%';
 }
 
 function asAxisUp() {
