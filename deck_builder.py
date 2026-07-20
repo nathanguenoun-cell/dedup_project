@@ -595,7 +595,6 @@ def build_deck(template_file, scores, client_name, segment=None, date=None, road
     {block: [{rating, atscale}, ...]} in deck row order.
     """
     prs = Presentation(template_file)
-    bb_avgs = bb_avgs_from_scores(scores)
 
     # Title-slide placeholders (cheap; harmless if a token is absent).
     title_map = {'[CLIENT]': client_name}
@@ -618,9 +617,11 @@ def build_deck(template_file, scores, client_name, segment=None, date=None, road
         render_takeaways_on_slide(slide, bb_items or [])
 
         # Dots + grades require scores data; skip the rest if not available.
-        avgs = bb_avgs.get(bb_name)
         rows = _scores_for_bb(scores, bb_name)
-        if avgs is None or not rows:
+        if not rows:
+            continue
+        avgs = bb_avgs_from_scores({bb_name: rows}).get(bb_name)
+        if avgs is None:      # rows present but all values None → nothing to place
             continue
         ca, aa = avgs['client_avg'], avgs['atscale_avg']
         y_list = SLIDE_Y_CENTERS[slide_num]
