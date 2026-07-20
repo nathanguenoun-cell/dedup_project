@@ -1391,3 +1391,16 @@ body {
 .deck-field input[type="file"] { font-size: 12px; }
 .deck-filehint { font-size: 11px; color: var(--muted); }
 .deck-form .btn-primary { align-self: flex-start; margin-top: 4px; }
+
+/* ── ASSESSMENT ── */
+/* Assessment rating rows */
+.as-row{display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);}
+.as-title{flex:0 0 42%;font-size:13px;}
+.as-axis{position:relative;flex:1 1 0;height:24px;cursor:pointer;}
+.as-track{position:absolute;top:11px;left:0;right:0;height:2px;background:var(--border);}
+.as-tick{position:absolute;top:6px;width:1px;height:12px;background:var(--border);}
+.as-dot{position:absolute;top:2px;width:18px;height:18px;border-radius:50%;transform:translateX(-50%);}
+.as-dot-client{background:#DDC7C7;}
+.as-dot-atscale{background:#BDD3F3;border:1px solid #6f93c8;cursor:grab;}
+.as-dot-atscale:active{cursor:grabbing;}
+.as-val{flex:0 0 84px;text-align:right;font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);}

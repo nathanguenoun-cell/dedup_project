@@ -13,12 +13,13 @@ let PROJECT = { id: null, name: '', status: 'draft', isOwner: false, members: []
 // Project pipeline modules shown in the header flow. 'dedup' is the live module;
 // the rest are scaffolded placeholders that future features will fill in.
 const STAGES = [
-  { key: 'dedup',     label: 'Deduplication' },
-  { key: 'takeaways', label: 'Key Takeaways' },
-  { key: 'roadmap',   label: 'Roadmap' },
-  { key: 'deck',      label: 'Final Deck' },
+  { key: 'dedup',      label: 'Deduplication' },
+  { key: 'takeaways',  label: 'Key Takeaways' },
+  { key: 'assessment', label: 'Assessment' },
+  { key: 'roadmap',    label: 'Roadmap' },
+  { key: 'deck',       label: 'Final Deck' },
 ];
-const STAGE_BUILT = { dedup: true, takeaways: true, roadmap: true, deck: true };
+const STAGE_BUILT = { dedup: true, takeaways: true, assessment: true, roadmap: true, deck: true };
 
 let state = {
   stage: 'dedup',         // which pipeline module is open (see STAGES)
@@ -39,6 +40,11 @@ let state = {
   takeawaysHighlighted: new Set(),
   takeawaysConfirmed: false,   // user explicitly confirmed the selection for Roadmap
   tkBlockIdx: 0,               // which building-block tab is open in Key Takeaways
+  // Assessment module: chosen Typeform project, cached client rows per block,
+  // and manual Atscale values keyed by Typeform field id.
+  assessment: { project: '', blocks: [], atscale: {} },
+  asBlockIdx: 0,
+  asTypeform: null,        // {items, qmap} cached after fetch, not persisted
   // Roadmap module: subset of the selected key takeaways picked for the roadmap.
   roadmapSelected: new Set(),
   roadmapConfirmed: false,
@@ -122,6 +128,14 @@ async function openProject(projectId) {
     state.takeawaysSelected = new Set(tk.selected || []);
     state.takeawaysHighlighted = new Set(tk.highlighted || []);
     state.takeawaysConfirmed = !!tk.confirmed;
+    const asmt = d.assessment || {};
+    state.assessment = {
+      project: asmt.project || '',
+      blocks: Array.isArray(asmt.blocks) ? asmt.blocks : [],
+      atscale: asmt.atscale || {},
+    };
+    state.asBlockIdx = 0;
+    state.asTypeform = null;
     const rm = d.roadmap || {};
     state.roadmapSelected = new Set(rm.selected || []);
     state.roadmapConfirmed = !!rm.confirmed;
@@ -175,6 +189,11 @@ function saveProjectData(immediate) {
       selected: [...state.takeawaysSelected],
       highlighted: [...state.takeawaysHighlighted],
       confirmed: state.takeawaysConfirmed,
+    },
+    assessment: {
+      project: state.assessment.project,
+      blocks: state.assessment.blocks,
+      atscale: state.assessment.atscale,
     },
     roadmap: {
       selected: [...state.roadmapSelected],
@@ -283,6 +302,11 @@ function renderStage() {
   if (state.stage === 'takeaways') {
     if (sidebar) sidebar.style.display = 'none';
     renderKeyTakeaways();
+    return;
+  }
+  if (state.stage === 'assessment') {
+    if (sidebar) sidebar.style.display = 'none';
+    renderAssessment();
     return;
   }
   if (state.stage === 'roadmap') {
@@ -547,6 +571,149 @@ function confirmTakeaways() {
   saveProjectData(true);          // persist immediately before moving on
   switchStage('roadmap');
 }
+
+// ─── Assessment module ────────────────────────────────────────────
+// Pulls self-assessment responses from Typeform (tfFetchTypeform), lets the
+// user pick a project (tfDistinctProjects → tfBuildAssessment), then shows one
+// rating row per sub-block: a fixed pink dot at the Typeform client average
+// and a draggable blue dot for the manually-set Atscale score (1..5, decimal).
+
+async function renderAssessment() {
+  const panel = document.getElementById('mainPanel');
+  const a = state.assessment;
+
+  // If no project chosen yet, or no cached blocks, show the fetch/pick UI.
+  if (!a.project || !a.blocks.length) {
+    panel.innerHTML = `
+      <div class="tk-wrap">
+        <h2 class="tk-title">Assessment</h2>
+        <p class="tk-sub">Pull the self-assessment responses from Typeform, pick the project,
+           then position the Atscale score on each row.</p>
+        <button class="btn-primary" id="asFetchBtn" onclick="assessmentFetch()">Fetch responses</button>
+        <div id="asPick" style="margin-top:14px;"></div>
+      </div>`;
+    return;
+  }
+  renderAssessmentBoard();
+}
+
+async function assessmentFetch() {
+  const btn = document.getElementById('asFetchBtn');
+  const pick = document.getElementById('asPick');
+  btn.disabled = true; pick.textContent = 'Fetching…';
+  try {
+    const { items, qmap } = await tfFetchTypeform();
+    state.asTypeform = { items, qmap };
+    const projects = tfDistinctProjects(items);
+    pick.innerHTML = `
+      <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Project</label>
+      <select id="asProject" class="filter-select" style="min-width:260px;">
+        <option value="">— Select a project —</option>
+        ${projects.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}
+      </select>
+      <button class="btn-primary" style="margin-left:10px;" onclick="assessmentPick()">Load</button>`;
+  } catch (e) {
+    pick.innerHTML = `<span style="color:var(--red)">${escapeHtml(e.message)}</span>`;
+  } finally { btn.disabled = false; }
+}
+
+function assessmentPick() {
+  const sel = document.getElementById('asProject');
+  const project = sel ? sel.value : '';
+  if (!project || !state.asTypeform) return;
+  const built = tfBuildAssessment(state.asTypeform.items, project, state.asTypeform.qmap);
+  state.assessment.project = project;
+  state.assessment.blocks = built.blocks;   // [{block, rows:[{fieldId,title,client}]}]
+  state.asBlockIdx = 0;
+  saveProjectData(true);
+  renderAssessmentBoard();
+}
+
+function renderAssessmentBoard() {
+  const panel = document.getElementById('mainPanel');
+  const a = state.assessment;
+  const blocks = a.blocks;
+  const idx = Math.min(state.asBlockIdx, blocks.length - 1);
+  const blk = blocks[idx];
+
+  const tabs = blocks.map((b, i) =>
+    `<button class="tk-tab ${i === idx ? 'active' : ''}" onclick="state.asBlockIdx=${i};renderAssessmentBoard()">${escapeHtml(b.block)}</button>`
+  ).join('');
+
+  const rows = blk.rows.map(r => {
+    const at = a.atscale[r.fieldId];
+    const clientPct = r.client == null ? null : ((r.client - 1) / 4) * 100;
+    const atPct = at == null ? null : ((at - 1) / 4) * 100;
+    const ticks = [0, 25, 50, 75, 100].map(p => `<div class="as-tick" style="left:${p}%"></div>`).join('');
+    return `
+      <div class="as-row">
+        <div class="as-title">${escapeHtml(r.title)}</div>
+        <div class="as-axis" data-field="${escapeHtml(r.fieldId)}" onpointerdown="asAxisDown(event)">
+          <div class="as-track"></div>${ticks}
+          ${clientPct == null ? '' : `<div class="as-dot as-dot-client" style="left:${clientPct}%"></div>`}
+          ${atPct == null ? '' : `<div class="as-dot as-dot-atscale" style="left:${atPct}%"></div>`}
+        </div>
+        <div class="as-val">C ${r.client == null ? '–' : r.client.toFixed(1)} · A ${at == null ? '–' : at.toFixed(1)}</div>
+      </div>`;
+  }).join('');
+
+  const cAvg = avgOf(blk.rows.map(r => r.client));
+  const aAvg = avgOf(blk.rows.map(r => a.atscale[r.fieldId]));
+  panel.innerHTML = `
+    <div class="tk-wrap">
+      <h2 class="tk-title">Assessment — ${escapeHtml(a.project)}</h2>
+      <div class="tk-tabs">${tabs}</div>
+      <div style="font-size:12px;color:var(--muted);margin:10px 0;">
+        Block average — client ${cAvg == null ? '–' : cAvg.toFixed(1)} · Atscale ${aAvg == null ? '–' : aAvg.toFixed(1)}
+        · <span style="color:#DDC7C7">●</span> client (fixed) <span style="color:#6f93c8">●</span> Atscale (drag)
+      </div>
+      ${rows}
+    </div>`;
+}
+
+function avgOf(xs) {
+  const v = xs.filter(x => x != null);
+  return v.length ? v.reduce((a, c) => a + c, 0) / v.length : null;
+}
+
+// One active axis drag at a time. Pointer capture keeps tracking even if the
+// cursor leaves the narrow axis strip while dragging.
+let _asDrag = null;   // {field, axisEl}
+
+function asScoreFromEvent(axisEl, e) {
+  const rect = axisEl.getBoundingClientRect();
+  let pct = (e.clientX - rect.left) / rect.width;
+  pct = Math.max(0, Math.min(1, pct));
+  return 1 + pct * 4;                 // 1..5, continuous
+}
+
+function asAxisDown(e) {
+  const axisEl = e.currentTarget;
+  const field = axisEl.getAttribute('data-field');
+  _asDrag = { field, axisEl };
+  state.assessment.atscale[field] = round1(asScoreFromEvent(axisEl, e));
+  axisEl.setPointerCapture(e.pointerId);
+  axisEl.addEventListener('pointermove', asAxisMove);
+  axisEl.addEventListener('pointerup', asAxisUp, { once: true });
+  renderAssessmentBoard();
+}
+
+function asAxisMove(e) {
+  if (!_asDrag) return;
+  const el = document.querySelector(`.as-axis[data-field="${CSS.escape(_asDrag.field)}"] .as-dot-atscale`);
+  const axis = document.querySelector(`.as-axis[data-field="${CSS.escape(_asDrag.field)}"]`);
+  const score = round1(asScoreFromEvent(axis, e));
+  state.assessment.atscale[_asDrag.field] = score;
+  if (el) el.style.left = ((score - 1) / 4 * 100) + '%';   // move without full re-render
+}
+
+function asAxisUp() {
+  _asDrag = null;
+  saveProjectData();          // debounced persist
+  renderAssessmentBoard();    // refresh averages + value labels
+}
+
+function round1(x) { return Math.round(x * 10) / 10; }
 
 // ─── Roadmap module ──────────────────────────────────────────────
 // Candidates are the key takeaways selected in the previous step. The user
