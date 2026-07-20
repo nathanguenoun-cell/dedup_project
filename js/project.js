@@ -1480,16 +1480,6 @@ function renderIssuesTab() {
           <div id="columnMapFields"></div>
           <button class="btn-primary" style="margin-top:16px;" onclick="applyColumnMap()">Confirm mapping →</button>
         </div>
-
-        <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border);">
-          <div class="howto-title">🔗 Import from Typeform</div>
-          <div style="font-size:12px;color:var(--muted);margin:4px 0 12px;">
-            Fetch responses from the connected form (configured server-side).
-          </div>
-          <button class="btn-primary" onclick="importFromTypeform()">Fetch responses</button>
-          <div id="typeformStatus" style="margin-top:10px;font-size:12px;font-family:'DM Mono',monospace;color:var(--muted);"></div>
-          <div id="typeformResult"></div>
-        </div>
       </div>`;
     injectDropStyles();
     return;

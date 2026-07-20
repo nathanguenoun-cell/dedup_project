@@ -1,28 +1,18 @@
 // ═══════════════════════════════════════════════════════════════
 // TYPEFORM LOADER — fetch responses, pick a project, compute averages
 //
-// Workflow:
-//  1. "Fetch responses" → load the connected form (fixed server-side) + its
-//     responses. This ONLY populates the Project dropdown; no detail is shown.
-//  2. Pick a project → show per-question averages (1 decimal) grouped by
-//     building block (the Typeform group/section), plus each block's average.
+// Pure(ish) data functions consumed by the Assessment step:
+//  1. tfFetchTypeform() — loads the connected form (fixed server-side) + its
+//     responses, returns {form, items, qmap}.
+//  2. tfBuildAssessment(items, projectValue, qmap) — for a chosen project,
+//     returns ordered per-building-block rows with the client (Typeform)
+//     average per question.
 //
 // The project is identified by the hidden field "t" (item.hidden.t) — fixed,
-// not user-selectable. A collapsible debug panel dumps the raw JSON.
+// not user-selectable.
 // ═══════════════════════════════════════════════════════════════
 
 const PROJECT_HIDDEN_KEY = 't';   // the hidden field that carries the project name
-
-let _tfForm = null;       // last fetched form definition
-let _tfResponses = null;  // last fetched responses payload ({items, total_items, …})
-let _tfQMap = null;       // {questions:[{id,ref,title,type,block}]}
-
-function tfStatus(msg, type) {
-  const el = document.getElementById('typeformStatus');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.color = type === 'error' ? 'var(--red)' : (type === 'ok' ? 'var(--green)' : 'var(--muted)');
-}
 
 // Numeric value of an answer (rating / opinion_scale / number → type "number").
 // Returns null when not numeric, so such questions are skipped in the averages.
@@ -30,6 +20,14 @@ function tfNumeric(a) {
   if (!a) return null;
   if (typeof a.number === 'number') return a.number;
   return null;
+}
+
+// The value of a Typeform answer object, numeric-first.
+function tfAnswerValue(a) {
+  if (!a) return null;
+  const num = tfNumeric(a);
+  if (num != null) return num;
+  return a.text ?? (a.choice && a.choice.label) ?? a.boolean ?? null;
 }
 
 // The project name of a response — the hidden field "t".
@@ -95,220 +93,39 @@ function tfComputeAverages(items, projectValue, qmap) {
   return { rowsCount: rows.length, blocks };
 }
 
-async function importFromTypeform() {
-  const resultEl = document.getElementById('typeformResult');
-  if (resultEl) resultEl.innerHTML = '';
-  tfStatus('Fetching form + responses…');
-
-  try {
-    const [formRes, respRes] = await Promise.all([
-      api.typeformForm(),
-      api.typeformResponses(1000),
-    ]);
-    if (!formRes || formRes.available === false) {
-      tfStatus((formRes && formRes.error) || 'Typeform not configured.', 'error');
-      return;
-    }
-    if (!respRes || respRes.available === false) {
-      tfStatus((respRes && respRes.error) || 'Could not fetch responses.', 'error');
-      return;
-    }
-
-    _tfForm = formRes.data || {};
-    _tfResponses = respRes.data || {};
-    const fields = Array.isArray(_tfForm.fields) ? _tfForm.fields : [];
-    const items  = Array.isArray(_tfResponses.items) ? _tfResponses.items : [];
-    _tfQMap = tfBuildQuestionMap(fields);
-
-    tfStatus(`✓ ${_tfForm.title || 'form'} — ${_tfQMap.questions.length} questions · ${_tfResponses.total_items ?? items.length} responses`, 'ok');
-    renderTypeformPanel(items);
-  } catch (err) {
-    tfStatus('Error: ' + (err && err.message || err), 'error');
-  }
+// Fetch the connected form + its responses, and build the question map.
+async function tfFetchTypeform() {
+  const [formRes, respRes] = await Promise.all([api.typeformForm(), api.typeformResponses(1000)]);
+  if (!formRes || formRes.available === false) throw new Error((formRes && formRes.error) || 'Typeform not configured.');
+  if (!respRes || respRes.available === false) throw new Error((respRes && respRes.error) || 'Could not fetch responses.');
+  const form = formRes.data || {};
+  const items = Array.isArray((respRes.data || {}).items) ? respRes.data.items : [];
+  const qmap = tfBuildQuestionMap(Array.isArray(form.fields) ? form.fields : []);
+  return { form, items, qmap };
 }
 
-// Flatten form fields (recursing into groups) → leaf fields in form order.
-function tfFlatFields(fields) {
-  const out = [];
-  (function walk(list) {
-    (list || []).forEach(f => {
-      if (f.type === 'group' && f.properties && Array.isArray(f.properties.fields)) walk(f.properties.fields);
-      else out.push(f);
-    });
-  })(fields);
-  return out;
-}
+// Ordered per-building-block rows with the client average (Typeform) per question.
+function tfBuildAssessment(items, projectValue, qmap) {
+  const res = tfComputeAverages(items, projectValue, qmap);   // {blocks:{bn:{questions:[{title,avg,values}]}}}
+  // Index the computed averages by block+title so we can look them up while
+  // walking the form's own question order below.
+  const SEP = String.fromCharCode(30);   // avoids block/title collisions in the lookup key
+  const byKey = {};
+  Object.keys(res.blocks).forEach(bn => {
+    res.blocks[bn].questions.forEach(q => { byKey[bn + SEP + q.title] = q.avg; });
+  });
 
-// Diagnostic: does the DEFINITION repeat field ids, or only the RESPONSES?
-function tfDiagnostics(items) {
-  const count = (arr) => { const m = {}; arr.forEach(x => { if (x != null) m[x] = (m[x] || 0) + 1; }); return m; };
-  const maxOf = (m) => { const v = Object.values(m); return v.length ? Math.max(...v) : 0; };
-
-  const flat = tfFlatFields(Array.isArray(_tfForm.fields) ? _tfForm.fields : []);
-  const defCounts = count(flat.map(f => f.id));
-  const r0 = items[0];
-  const ra = (r0 && r0.answers) || [];
-  const respCounts = count(ra.map(a => a.field && a.field.id));
-
-  return {
-    defFields: flat.length,
-    defDistinct: Object.keys(defCounts).length,
-    defMaxIdRepeat: maxOf(defCounts),
-    respAnswers: ra.length,
-    respDistinct: Object.keys(respCounts).length,
-    respMaxIdRepeat: maxOf(respCounts),
-  };
-}
-
-// Step 1 render: just the Project dropdown (populated from hidden "t").
-function renderTypeformPanel(items) {
-  const el = document.getElementById('typeformResult');
-  if (!el) return;
-  const projects = tfDistinctProjects(items);
-  const d = tfDiagnostics(items);
-
-  el.innerHTML = `
-    <div style="margin-top:12px;padding:8px 10px;background:var(--surface);border-radius:6px;font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);">
-      diag — form: ${d.defFields} fields (${d.defDistinct} distinct ids, max id repeat ${d.defMaxIdRepeat})
-      · response[0]: ${d.respAnswers} answers (${d.respDistinct} distinct ids, max id repeat ${d.respMaxIdRepeat})
-    </div>
-    ${d.respMaxIdRepeat > Math.max(1, d.defMaxIdRepeat) ? `
-      <div style="margin-top:8px;padding:8px 10px;background:rgba(185,28,28,.08);border:1px solid var(--red);border-radius:6px;font-size:12px;color:var(--red);">
-        ⚠ Some responses answer the same question more than once, while the form declares it only once —
-        this is typical of Typeform's <b>auto-generated test responses</b>. Averages below keep the first
-        value per question, but the data is unreliable. Submit a real response to validate.
-      </div>` : ''}
-    <div style="margin-top:16px;">
-      <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Project</label>
-      <select id="tfProjectSelect" class="filter-select" style="min-width:260px;" onchange="tfRenderAverages()">
-        <option value="">— Select a project —</option>
-        ${projects.map(p => `<option value="${tfEsc(p)}">${tfEsc(p)}</option>`).join('')}
-      </select>
-      ${projects.length ? '' : `<div style="color:var(--red);font-size:12px;margin-top:6px;">No project values found in hidden field "${PROJECT_HIDDEN_KEY}". See Debug below.</div>`}
-    </div>
-    <div id="tfAverages"></div>
-    <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--border);">
-      <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">🔍 Inspect a question (raw values, no computation)</label>
-      <input id="tfInspectInput" class="filter-select" style="min-width:320px;" placeholder="type part of a question title, e.g. headcount" oninput="tfInspectQuestion()">
-      <div id="tfInspect"></div>
-    </div>
-    <details style="margin-top:18px;">
-      <summary style="cursor:pointer;font-size:12px;color:var(--muted);">Debug — raw structure</summary>
-      <div style="font-size:12px;font-weight:600;margin:10px 0 4px;">Questions &amp; building blocks (${_tfQMap.questions.length})</div>
-      <table class="result-table">
-        <thead><tr><th>Building block</th><th>Question</th><th>Type</th></tr></thead>
-        <tbody>
-          ${_tfQMap.questions.map(q => `<tr>
-            <td class="td-block" style="color:var(--muted)">${tfEsc(q.block)}</td>
-            <td class="td-takeaway">${tfEsc(q.title || '')}</td>
-            <td class="td-block" style="color:var(--muted)">${tfEsc(q.type || '')}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-      <div style="font-size:12px;font-weight:600;margin:12px 0 4px;">Raw form fields</div>
-      <pre style="max-height:260px;overflow:auto;background:var(--surface);padding:10px;border-radius:6px;font-size:11px;">${tfEsc(JSON.stringify(_tfForm.fields, null, 2))}</pre>
-      <div style="font-size:12px;font-weight:600;margin:12px 0 4px;">All responses (compact: hidden + answers as ref/id/type/value)</div>
-      <pre style="max-height:320px;overflow:auto;background:var(--surface);padding:10px;border-radius:6px;font-size:11px;">${tfEsc(JSON.stringify(tfCompactResponses(items), null, 2))}</pre>
-    </details>`;
-}
-
-// A small, readable projection of every response: its hidden fields and each
-// answer reduced to {ref, id, type, value}. Independent of the question map, so
-// it reveals the true value under each field ref (used to debug matching).
-function tfCompactResponses(items) {
-  return items.map((it, i) => ({
-    i,
-    hidden: it.hidden || {},
-    answers: (it.answers || []).map(a => ({
-      ref: a.field && a.field.ref,
-      id:  a.field && a.field.id,
-      type: a.type,
-      value: (tfNumeric(a) != null) ? tfNumeric(a) : (a.text ?? (a.choice && a.choice.label) ?? a.boolean ?? null),
-    })),
-  }));
-}
-
-// Step 2 render: averages for the chosen project (only once one is selected).
-function tfRenderAverages() {
-  const el = document.getElementById('tfAverages');
-  if (!el) return;
-  const items = (_tfResponses && _tfResponses.items) || [];
-  const sel = document.getElementById('tfProjectSelect');
-  const projectValue = sel ? sel.value : '';
-
-  if (!projectValue) { el.innerHTML = ''; return; }   // nothing until a project is picked
-
-  const res = tfComputeAverages(items, projectValue, _tfQMap);
-  const blockNames = Object.keys(res.blocks);
-  if (!blockNames.length) {
-    el.innerHTML = `<div style="color:var(--muted);margin-top:12px;">No numeric answers for this project.</div>`;
-    return;
-  }
-  el.innerHTML = `
-    <div style="font-size:12px;color:var(--muted);margin:14px 0 6px;">
-      ${res.rowsCount} response(s) for “${tfEsc(projectValue)}” · averages to 1 decimal
-    </div>
-    ${blockNames.map(bn => {
-      const b = res.blocks[bn];
-      const blockAvg = b.avgs.reduce((a, c) => a + c, 0) / b.avgs.length;
-      return `
-        <table class="result-table" style="margin-bottom:16px;">
-          <thead><tr><th style="width:78%">${tfEsc(bn)}</th><th style="text-align:right;">Avg</th></tr></thead>
-          <tbody>
-            ${b.questions.map(q => `<tr>
-              <td class="td-takeaway">${tfEsc(q.title)}
-                <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;">n=${q.values.length} · [${q.values.join(', ')}]</div>
-              </td>
-              <td style="text-align:right;font-variant-numeric:tabular-nums;">${q.avg.toFixed(1)}</td>
-            </tr>`).join('')}
-            <tr style="font-weight:700;background:var(--surface);">
-              <td>Building block average</td>
-              <td style="text-align:right;font-variant-numeric:tabular-nums;">${blockAvg.toFixed(1)}</td>
-            </tr>
-          </tbody>
-        </table>`;
-    }).join('')}`;
-}
-
-// Debug inspector: for every form question whose title matches the typed term,
-// show — straight from the raw API items, with NO dedup/averaging — the ordered
-// list of that field's values in each response, next to its hidden.t. This is
-// the ground-truth view to compare against what was actually answered.
-function tfInspectQuestion() {
-  const el = document.getElementById('tfInspect');
-  if (!el) return;
-  const raw = (document.getElementById('tfInspectInput') || {}).value || '';
-  const term = raw.trim().toLowerCase();
-  if (!term) { el.innerHTML = ''; return; }
-
-  const items = (_tfResponses && _tfResponses.items) || [];
-  const matches = _tfQMap.questions.filter(q => (q.title || '').toLowerCase().includes(term));
-  if (!matches.length) {
-    el.innerHTML = `<div style="color:var(--muted);margin-top:8px;font-size:12px;">No question title matches “${tfEsc(raw)}”.</div>`;
-    return;
-  }
-
-  el.innerHTML = matches.map(m => {
-    const rows = items.map((it, i) => {
-      const vals = (it.answers || [])
-        .filter(a => a.field && (a.field.id === m.id || a.field.ref === m.ref))
-        .map(a => (tfNumeric(a) != null) ? tfNumeric(a) : (a.text ?? (a.choice && a.choice.label) ?? ''));
-      return `<tr>
-        <td class="td-block">#${i}</td>
-        <td class="td-block" style="color:var(--muted)">${tfEsc(String((it.hidden && it.hidden[PROJECT_HIDDEN_KEY]) ?? ''))}</td>
-        <td style="font-family:'DM Mono',monospace;">[${vals.join(', ')}]${vals.length > 1 ? ` <span style="color:var(--red)">← ${vals.length} values</span>` : ''}</td>
-      </tr>`;
-    }).join('');
-    return `
-      <div style="margin-top:12px;">
-        <div style="font-size:12px;font-weight:600;">${tfEsc(m.title)}</div>
-        <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:4px;">block=${tfEsc(m.block)} · id=${tfEsc(m.id)} · ref=${tfEsc(m.ref)}</div>
-        <table class="result-table">
-          <thead><tr><th>Resp</th><th>t</th><th>Raw values (API order)</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
-  }).join('');
+  const blocksInOrder = [];
+  const seen = {};
+  qmap.questions.forEach(q => {
+    if (q.type !== 'opinion_scale' && q.type !== 'rating' && q.type !== 'number') return;
+    let entry = seen[q.block];
+    if (!entry) { entry = seen[q.block] = { block: q.block, rows: [] }; blocksInOrder.push(entry); }
+    const key = q.block + SEP + q.title;
+    const avg = Object.prototype.hasOwnProperty.call(byKey, key) ? byKey[key] : null;
+    entry.rows.push({ fieldId: q.id, title: q.title, client: (avg == null ? null : Number(avg.toFixed(1))) });
+  });
+  return { project: projectValue, blocks: blocksInOrder };
 }
 
 function tfEsc(s) {
