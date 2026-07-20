@@ -33,6 +33,8 @@ import an Excel/CSV → run analysis → review duplicates → export the clean 
    | `VOYAGE_API_KEY` | `pa-...` | **semantic embeddings** (recommended) — catches duplicates worded differently |
    | `OPENAI_API_KEY` | `sk-...` | alternative embeddings provider (used only if `VOYAGE_API_KEY` is unset) |
    | `EMBEDDING_MODEL` | `voyage-3.5` / `text-embedding-3-small` | optional embeddings model override |
+   | `TYPEFORM_TOKEN` | `tfp_...` | **Typeform import** — Personal token (scopes `forms:read`, `responses:read`). Kept server-side |
+   | `TYPEFORM_FORM_ID` | `abC123` | the single form the app imports from (fixed; users never enter it). From the form URL `admin.typeform.com/form/<ID>` |
 
    Railway injects `PORT` automatically; the server binds it on `0.0.0.0`.
 

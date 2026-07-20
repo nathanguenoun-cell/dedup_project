@@ -42,6 +42,10 @@ const api = {
   saveData:      (id, data)      => apiFetch('PUT',    `/api/projects/${id}/data`, data),
   addMember:     (id, email)     => apiFetch('POST',   `/api/projects/${id}/members`, { email }),
   removeMember:  (id, userId)    => apiFetch('DELETE', `/api/projects/${id}/members/${userId}`),
+
+  // typeform (form is fixed server-side — no form id passed)
+  typeformForm:      ()          => apiFetch('POST', '/api/typeform/form'),
+  typeformResponses: (pageSize)  => apiFetch('POST', '/api/typeform/responses', pageSize ? { page_size: pageSize } : {}),
 };
 
 //to redeploy

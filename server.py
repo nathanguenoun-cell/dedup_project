@@ -43,6 +43,12 @@ MOCK_MODE    = not API_KEY
 # so you never confuse the staging deploy with production. Unset on prod → no banner.
 ENV_NAME     = os.environ.get('ENV_NAME', '').strip()
 
+# Typeform integration (import responses as issues). The token is a secret and stays
+# server-side; the form ID is fixed config (the app is always bound to one form), so
+# the client never supplies it — it just triggers the fetch.
+TYPEFORM_TOKEN   = os.environ.get('TYPEFORM_TOKEN', '')
+TYPEFORM_FORM_ID = os.environ.get('TYPEFORM_FORM_ID', '').strip()
+
 # Embeddings provider (semantic candidate generation). Prefer Voyage (Anthropic's
 # recommended embeddings partner); fall back to OpenAI; else disabled → the client
 # degrades to lexical-only candidate generation.
@@ -72,6 +78,12 @@ if EMBED_PROVIDER:
     print(f"✓  Embeddings: {EMBED_PROVIDER} ({EMBED_MODEL}).", flush=True)
 else:
     print("ℹ  No embeddings key (VOYAGE_API_KEY / OPENAI_API_KEY) — falling back to lexical candidates.", flush=True)
+
+if TYPEFORM_TOKEN and TYPEFORM_FORM_ID:
+    print(f"✓  Typeform: connected (form {TYPEFORM_FORM_ID}).", flush=True)
+else:
+    missing = ' + '.join(n for n, v in (('TYPEFORM_TOKEN', TYPEFORM_TOKEN), ('TYPEFORM_FORM_ID', TYPEFORM_FORM_ID)) if not v)
+    print(f"ℹ  Typeform import disabled — set {missing}.", flush=True)
 
 print(f"→  Data dir: {db.DATA_DIR}", flush=True)
 print(f"→  Serving on http://0.0.0.0:{PORT}\n", flush=True)
@@ -173,6 +185,19 @@ def real_embeddings_call(texts):
         # Both providers return {"data": [{"embedding": [...]}, ...]} in input order.
         vectors.extend(item['embedding'] for item in data['data'])
     return vectors
+
+
+def typeform_get(path):
+    """GET a Typeform API path (e.g. 'forms/<id>' or 'forms/<id>/responses?page_size=25')
+    with the server-side token. Returns the parsed JSON. Raises on HTTP/other errors so
+    the caller can surface a clear message."""
+    req = urllib.request.Request(
+        f'https://api.typeform.com/{path}',
+        headers={'Authorization': f'Bearer {TYPEFORM_TOKEN}'},
+        method='GET',
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return json.loads(resp.read())
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -358,6 +383,35 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 dur = time.time() - t0
                 print(f"[messages] ERROR  block={block!r} after {dur:.1f}s: {type(e).__name__}: {e}", flush=True)
                 self._send_json(502, {"error": str(e)})
+            return
+
+        if path in ('/api/typeform/form', '/api/typeform/responses'):
+            if not auth.current_user(self):
+                self._send_json(401, {"error": "Not authenticated."})
+                return
+            if not (TYPEFORM_TOKEN and TYPEFORM_FORM_ID):
+                # Not configured → the client shows a "connect Typeform" hint.
+                self._send_json(200, {"available": False, "error": "TYPEFORM_TOKEN/TYPEFORM_FORM_ID not set."})
+                return
+            try:
+                if path == '/api/typeform/form':
+                    tf_path = f'forms/{TYPEFORM_FORM_ID}'
+                else:
+                    payload = json.loads(body) if body else {}
+                    page_size = int(payload.get('page_size') or 25)
+                    page_size = max(1, min(page_size, 1000))
+                    tf_path = f'forms/{TYPEFORM_FORM_ID}/responses?page_size={page_size}'
+                t0 = time.time()
+                data = typeform_get(tf_path)
+                print(f"[typeform] ok path={path} in {time.time()-t0:.1f}s", flush=True)
+                self._send_json(200, {"available": True, "data": data})
+            except urllib.error.HTTPError as e:
+                err = e.read().decode()
+                print(f"[typeform] FAIL path={path} HTTP {e.code}: {err[:200]}", flush=True)
+                self._send_json(200, {"available": False, "error": f"Typeform HTTP {e.code}: {err[:200]}"})
+            except Exception as e:
+                print(f"[typeform] ERROR path={path}: {type(e).__name__}: {e}", flush=True)
+                self._send_json(200, {"available": False, "error": str(e)})
             return
 
         if path == '/api/deck':
