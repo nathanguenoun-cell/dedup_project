@@ -172,6 +172,12 @@ function renderTypeformPanel(items) {
       diag — form: ${d.defFields} fields (${d.defDistinct} distinct ids, max id repeat ${d.defMaxIdRepeat})
       · response[0]: ${d.respAnswers} answers (${d.respDistinct} distinct ids, max id repeat ${d.respMaxIdRepeat})
     </div>
+    ${d.respMaxIdRepeat > Math.max(1, d.defMaxIdRepeat) ? `
+      <div style="margin-top:8px;padding:8px 10px;background:rgba(185,28,28,.08);border:1px solid var(--red);border-radius:6px;font-size:12px;color:var(--red);">
+        ⚠ Some responses answer the same question more than once, while the form declares it only once —
+        this is typical of Typeform's <b>auto-generated test responses</b>. Averages below keep the first
+        value per question, but the data is unreliable. Submit a real response to validate.
+      </div>` : ''}
     <div style="margin-top:16px;">
       <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Project</label>
       <select id="tfProjectSelect" class="filter-select" style="min-width:260px;" onchange="tfRenderAverages()">
