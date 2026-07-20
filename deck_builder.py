@@ -150,18 +150,11 @@ def bb_avgs_from_scores(scores):
 
 
 def _scores_for_bb(scores, bb_name):
-    """Find the scores list for a slide's building block, matching keys fuzzily."""
-    for key, rows in (scores or {}).items():
-        if _match_bb_name(key, bb_name):
-            return rows
-    return None
-
-
-def _match_bb_name(a, b):
-    """Loose equality between two building-block names (case/punct/space-insensitive,
-    & and 'and' treated as equivalent — same normalization as _norm_bb/_match_bb below,
-    so the scores/dots matcher agrees with the takeaways matcher on the same slides)."""
-    return _norm_bb(a) == _norm_bb(b)
+    """Find the scores list for a slide's building block, using the same robust
+    matching as the takeaways matcher (exact → case → normalized → partial →
+    word-subset), so e.g. a Typeform block 'Demand Gen' matches slide
+    'Demand Generation'."""
+    return _match_bb(bb_name, scores or {})
 
 
 def is_placeholder_dot(shape):
@@ -260,7 +253,7 @@ def update_grades_and_labels(slide, atscale_avg, client_avg, client_name):
         for p in shape.text_frame.paragraphs:
             runs = p.runs
             if len(runs) >= 2 and 'Grade' in runs[1].text:
-                runs[0].text = client_name
+                runs[0].text = 'AtScale'   # top-right grade shows the Atscale average
                 break
             for r in p.runs:
                 if '[CLIENT]' in r.text:
@@ -720,12 +713,9 @@ def build_deck(template_file, scores, client_name, segment=None, date=None, road
     """
     prs = Presentation(template_file)
 
-    # Title-slide placeholders (cheap; harmless if a token is absent).
-    title_map = {'[CLIENT]': client_name}
-    if segment:
-        title_map['[SEGMENT]'] = segment
-    if date:
-        title_map['[DATE]'] = date
+    # Title-slide placeholders. Missing segment/date resolve to '' so the raw
+    # [SEGMENT] / [DATE] tokens are removed from the title slide, not left visible.
+    title_map = {'[CLIENT]': client_name, '[SEGMENT]': segment or '', '[DATE]': date or ''}
     for slide in prs.slides:
         _replace_placeholders(slide, title_map)
 

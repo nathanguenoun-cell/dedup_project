@@ -1428,3 +1428,8 @@ body {
 .as-rvals .as-at{display:flex;align-items:center;gap:6px;}
 .as-rvals .as-at input{width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;
   font-size:12px;font-family:'DM Mono',monospace;}
+.as-rvals .as-at input.as-miss{border-color:var(--red);background:rgba(185,28,28,.06);}
+.as-warn{background:rgba(185,28,28,.08);border:1px solid var(--red);color:var(--red);
+  border-radius:6px;padding:8px 12px;font-size:13px;margin:8px 0 12px;}
+.as-badge{display:inline-block;background:var(--red);color:#fff;border-radius:9px;
+  padding:0 6px;font-size:11px;font-weight:700;margin-left:4px;}

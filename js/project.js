@@ -642,9 +642,11 @@ function renderAssessmentBoard() {
   const idx = Math.min(Math.max(0, state.asBlockIdx || 0), blocks.length - 1);
   const blk = blocks[idx];
 
-  const tabs = blocks.map((b, i) =>
-    `<button class="tk-tab ${i === idx ? 'active' : ''}" onclick="state.asBlockIdx=${i};renderAssessmentBoard()">${escapeHtml(b.block)}</button>`
-  ).join('');
+  const missOf = b => b.rows.filter(r => a.atscale[r.fieldId] == null).length;
+  const tabs = blocks.map((b, i) => {
+    const m = missOf(b);
+    return `<button class="tk-tab ${i === idx ? 'active' : ''}" onclick="state.asBlockIdx=${i};renderAssessmentBoard()">${escapeHtml(b.block)}${m ? ` <span class="as-badge">${m}</span>` : ''}</button>`;
+  }).join('');
 
   const rows = blk.rows.map(r => {
     const at = a.atscale[r.fieldId];
@@ -663,6 +665,7 @@ function renderAssessmentBoard() {
           <span class="as-cl">Client <b>${r.client == null ? '–' : r.client.toFixed(1)}</b></span>
           <span class="as-at">AtScale
             <input type="number" min="1" max="5" step="0.1" value="${at == null ? '' : at}"
+                   class="${at == null ? 'as-miss' : ''}"
                    onchange="asSetValue('${escapeHtml(r.fieldId)}', this.value)"
                    onpointerdown="event.stopPropagation()">
           </span>
@@ -672,6 +675,7 @@ function renderAssessmentBoard() {
 
   const cAvg = avgOf(blk.rows.map(r => r.client));
   const aAvg = avgOf(blk.rows.map(r => a.atscale[r.fieldId]));
+  const missTotal = assessmentMissing().length;
 
   panel.innerHTML = `
     <div class="tk-wrap as-page">
@@ -680,6 +684,7 @@ function renderAssessmentBoard() {
         · block avg Client ${cAvg == null ? '–' : cAvg.toFixed(1)} · AtScale ${aAvg == null ? '–' : aAvg.toFixed(1)}
         · <span class="as-legend as-dot-client"></span> Client (Typeform, fixed)
         · <span class="as-legend as-dot-atscale"></span> AtScale (drag or type)</div>
+      ${missTotal ? `<div class="as-warn">⚠ ${missTotal} AtScale note(s) still missing across all building blocks — the deck cannot be generated until every one is filled.</div>` : ''}
       <div class="tk-tabs">${tabs}</div>
       <div class="as-head">
         <div class="as-head-l"></div>
@@ -1427,15 +1432,35 @@ function confirmRoadmap() {
 // Typeform, Atscale positioned manually), and the server returns the .pptx
 // for download.
 
+// All sub-blocks missing an Atscale value (across every building block).
+function assessmentMissing() {
+  const a = state.assessment;
+  const out = [];
+  (a.blocks || []).forEach(b => b.rows.forEach(r => {
+    if (a.atscale[r.fieldId] == null) out.push({ block: b.block, title: r.title });
+  }));
+  return out;
+}
+
 function renderDeck() {
   const panel = document.getElementById('mainPanel');
   document.getElementById('actionRow').style.display = 'none';
   const hasScores = (state.assessment.blocks || []).length > 0;
+  const missing = assessmentMissing();
+  const canGen = hasScores && missing.length === 0;
+  // Group missing counts by building block for a readable message.
+  const byBlock = {};
+  missing.forEach(m => { byBlock[m.block] = (byBlock[m.block] || 0) + 1; });
+  const missMsg = missing.length
+    ? `${missing.length} AtScale value(s) missing — complete the Assessment step: `
+      + Object.entries(byBlock).map(([b, n]) => `${escapeHtml(b)} (${n})`).join(', ')
+    : '';
   panel.innerHTML = `
     <div class="deck-wrap">
       <h2 class="tk-title">Generate the deck</h2>
       <p class="tk-sub">The Diagnosis Synthesis slides are filled from the Assessment step
          (client dots from Typeform, Atscale dots you positioned). The deck downloads as a .pptx.</p>
+      ${missing.length ? `<div class="as-warn">⚠ ${missMsg}</div>` : ''}
       <div class="deck-form">
         <label class="deck-field">
           <span>Client name</span>
@@ -1447,8 +1472,8 @@ function renderDeck() {
             <input id="deckDate" type="text" placeholder="e.g. June 2026">
           </label>
         </div>
-        <button class="btn-primary" id="deckGenBtn" onclick="generateDeck()" ${hasScores ? '' : 'disabled'}>Generate deck</button>
-        <span class="action-hint" id="deckHint">${hasScores ? 'Ready to generate.' : 'Complete the Assessment step first.'}</span>
+        <button class="btn-primary" id="deckGenBtn" onclick="generateDeck()" ${canGen ? '' : 'disabled'}>Generate deck</button>
+        <span class="action-hint" id="deckHint">${canGen ? 'Ready to generate.' : (hasScores ? 'Fill every AtScale note first.' : 'Complete the Assessment step first.')}</span>
       </div>
     </div>`;
 }
@@ -1508,6 +1533,8 @@ async function generateDeck() {
   if (!client) { hint.textContent = 'Enter a client name first.'; return; }
   const scores = buildScoresPayload();
   if (!Object.keys(scores).length) { hint.textContent = 'Complete the Assessment step first.'; return; }
+  const missing = assessmentMissing();
+  if (missing.length) { hint.textContent = `${missing.length} AtScale value(s) missing — complete the Assessment step.`; return; }
 
   btn.disabled = true;
   hint.textContent = 'Generating…';
