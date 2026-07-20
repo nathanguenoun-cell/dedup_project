@@ -158,9 +158,10 @@ def _scores_for_bb(scores, bb_name):
 
 
 def _match_bb_name(a, b):
-    """Loose equality between two building-block names (case/punct/space-insensitive)."""
-    norm = lambda s: re.sub(r'[^a-z0-9]+', '', (s or '').lower())
-    return norm(a) == norm(b)
+    """Loose equality between two building-block names (case/punct/space-insensitive,
+    & and 'and' treated as equivalent — same normalization as _norm_bb/_match_bb below,
+    so the scores/dots matcher agrees with the takeaways matcher on the same slides)."""
+    return _norm_bb(a) == _norm_bb(b)
 
 
 def is_placeholder_dot(shape):
