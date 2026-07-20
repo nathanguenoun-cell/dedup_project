@@ -638,54 +638,55 @@ function renderAssessmentBoard() {
   const a = state.assessment;
   const colHead = [1, 2, 3, 4, 5].map(n => `<div class="as-col-h c${n}">${n}</div>`).join('');
 
-  const groups = a.blocks.map(b => {
-    const cAvg = avgOf(b.rows.map(r => r.client));
-    const aAvg = avgOf(b.rows.map(r => a.atscale[r.fieldId]));
-    const rows = b.rows.map(r => {
-      const at = a.atscale[r.fieldId];
-      const bands = [1, 2, 3, 4, 5].map(n => `<div class="as-band c${n}"></div>`).join('');
-      const clientDot = r.client == null ? '' :
-        `<div class="as-dot as-dot-client" style="left:${asPosPct(r.client)}%"></div>`;
-      const atDot = at == null ? '' :
-        `<div class="as-dot as-dot-atscale" style="left:${asPosPct(at)}%"></div>`;
-      return `
-        <div class="as-grow">
-          <div class="as-rtitle">${escapeHtml(r.title)}</div>
-          <div class="as-axis" data-field="${escapeHtml(r.fieldId)}" onpointerdown="asAxisDown(event)">
-            ${bands}${clientDot}${atDot}
-          </div>
-          <div class="as-rvals">
-            <span class="as-cl">Client <b>${r.client == null ? '–' : r.client.toFixed(1)}</b></span>
-            <span class="as-at">AtScale
-              <input type="number" min="1" max="5" step="0.1" value="${at == null ? '' : at}"
-                     onchange="asSetValue('${escapeHtml(r.fieldId)}', this.value)"
-                     onpointerdown="event.stopPropagation()">
-            </span>
-          </div>
-        </div>`;
-    }).join('');
+  const blocks = a.blocks;
+  const idx = Math.min(Math.max(0, state.asBlockIdx || 0), blocks.length - 1);
+  const blk = blocks[idx];
+
+  const tabs = blocks.map((b, i) =>
+    `<button class="tk-tab ${i === idx ? 'active' : ''}" onclick="state.asBlockIdx=${i};renderAssessmentBoard()">${escapeHtml(b.block)}</button>`
+  ).join('');
+
+  const rows = blk.rows.map(r => {
+    const at = a.atscale[r.fieldId];
+    const bands = [1, 2, 3, 4, 5].map(n => `<div class="as-band c${n}"></div>`).join('');
+    const clientDot = r.client == null ? '' :
+      `<div class="as-dot as-dot-client" style="left:${asPosPct(r.client)}%"></div>`;
+    const atDot = at == null ? '' :
+      `<div class="as-dot as-dot-atscale" style="left:${asPosPct(at)}%"></div>`;
     return `
-      <div class="as-group">
-        <div class="as-glabel"><div class="as-glabel-box">
-          <div class="as-gname">${escapeHtml(b.block)}</div>
-          <div class="as-gavg">Client ${cAvg == null ? '–' : cAvg.toFixed(1)} · AtScale ${aAvg == null ? '–' : aAvg.toFixed(1)}</div>
-        </div></div>
-        <div class="as-gbody">${rows}</div>
+      <div class="as-grow">
+        <div class="as-rtitle">${escapeHtml(r.title)}</div>
+        <div class="as-axis" data-field="${escapeHtml(r.fieldId)}" onpointerdown="asAxisDown(event)">
+          ${bands}${clientDot}${atDot}
+        </div>
+        <div class="as-rvals">
+          <span class="as-cl">Client <b>${r.client == null ? '–' : r.client.toFixed(1)}</b></span>
+          <span class="as-at">AtScale
+            <input type="number" min="1" max="5" step="0.1" value="${at == null ? '' : at}"
+                   onchange="asSetValue('${escapeHtml(r.fieldId)}', this.value)"
+                   onpointerdown="event.stopPropagation()">
+          </span>
+        </div>
       </div>`;
   }).join('');
 
+  const cAvg = avgOf(blk.rows.map(r => r.client));
+  const aAvg = avgOf(blk.rows.map(r => a.atscale[r.fieldId]));
+
   panel.innerHTML = `
     <div class="tk-wrap as-page">
-      <h2 class="tk-title as-maintitle">Assessment vs. best in class</h2>
+      <h2 class="tk-title as-maintitle">${escapeHtml(blk.block)}</h2>
       <div class="as-sub">${escapeHtml(a.project)}
+        · block avg Client ${cAvg == null ? '–' : cAvg.toFixed(1)} · AtScale ${aAvg == null ? '–' : aAvg.toFixed(1)}
         · <span class="as-legend as-dot-client"></span> Client (Typeform, fixed)
         · <span class="as-legend as-dot-atscale"></span> AtScale (drag or type)</div>
+      <div class="tk-tabs">${tabs}</div>
       <div class="as-head">
         <div class="as-head-l"></div>
         <div class="as-cols">${colHead}</div>
         <div class="as-head-r"></div>
       </div>
-      ${groups}
+      ${rows}
     </div>`;
 }
 
