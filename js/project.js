@@ -678,7 +678,7 @@ function avgOf(xs) {
 
 // One active axis drag at a time. Pointer capture keeps tracking even if the
 // cursor leaves the narrow axis strip while dragging.
-let _asDrag = null;   // {field, axisEl}
+let _asDrag = null;   // {field, axisEl, dotEl}
 
 function asScoreFromEvent(axisEl, e) {
   const rect = axisEl.getBoundingClientRect();
@@ -690,27 +690,33 @@ function asScoreFromEvent(axisEl, e) {
 function asAxisDown(e) {
   const axisEl = e.currentTarget;
   const field = axisEl.getAttribute('data-field');
-  _asDrag = { field, axisEl };
-  state.assessment.atscale[field] = round1(asScoreFromEvent(axisEl, e));
+  let dotEl = axisEl.querySelector('.as-dot-atscale');
+  if (!dotEl) {                       // first placement on this row
+    dotEl = document.createElement('div');
+    dotEl.className = 'as-dot as-dot-atscale';
+    axisEl.appendChild(dotEl);
+  }
+  _asDrag = { field, axisEl, dotEl };
+  const score = round1(asScoreFromEvent(axisEl, e));
+  state.assessment.atscale[field] = score;
+  dotEl.style.left = ((score - 1) / 4 * 100) + '%';   // move in place, no re-render
   axisEl.setPointerCapture(e.pointerId);
   axisEl.addEventListener('pointermove', asAxisMove);
   axisEl.addEventListener('pointerup', asAxisUp, { once: true });
-  renderAssessmentBoard();
 }
 
 function asAxisMove(e) {
   if (!_asDrag) return;
-  const el = document.querySelector(`.as-axis[data-field="${CSS.escape(_asDrag.field)}"] .as-dot-atscale`);
-  const axis = document.querySelector(`.as-axis[data-field="${CSS.escape(_asDrag.field)}"]`);
-  const score = round1(asScoreFromEvent(axis, e));
+  const score = round1(asScoreFromEvent(_asDrag.axisEl, e));
   state.assessment.atscale[_asDrag.field] = score;
-  if (el) el.style.left = ((score - 1) / 4 * 100) + '%';   // move without full re-render
+  _asDrag.dotEl.style.left = ((score - 1) / 4 * 100) + '%';
 }
 
 function asAxisUp() {
+  if (_asDrag && _asDrag.axisEl) _asDrag.axisEl.removeEventListener('pointermove', asAxisMove);
   _asDrag = null;
   saveProjectData();          // debounced persist
-  renderAssessmentBoard();    // refresh averages + value labels
+  renderAssessmentBoard();    // refresh averages + value labels (drag is done)
 }
 
 function round1(x) { return Math.round(x * 10) / 10; }
