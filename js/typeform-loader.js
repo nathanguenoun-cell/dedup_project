@@ -149,9 +149,27 @@ function renderTypeformPanel(items) {
           </tr>`).join('')}
         </tbody>
       </table>
-      <div style="font-size:12px;font-weight:600;margin:12px 0 4px;">First raw response</div>
-      <pre style="max-height:260px;overflow:auto;background:var(--surface);padding:10px;border-radius:6px;font-size:11px;">${tfEsc(JSON.stringify(items[0] || null, null, 2))}</pre>
+      <div style="font-size:12px;font-weight:600;margin:12px 0 4px;">Raw form fields</div>
+      <pre style="max-height:260px;overflow:auto;background:var(--surface);padding:10px;border-radius:6px;font-size:11px;">${tfEsc(JSON.stringify(_tfForm.fields, null, 2))}</pre>
+      <div style="font-size:12px;font-weight:600;margin:12px 0 4px;">All responses (compact: hidden + answers as ref/id/type/value)</div>
+      <pre style="max-height:320px;overflow:auto;background:var(--surface);padding:10px;border-radius:6px;font-size:11px;">${tfEsc(JSON.stringify(tfCompactResponses(items), null, 2))}</pre>
     </details>`;
+}
+
+// A small, readable projection of every response: its hidden fields and each
+// answer reduced to {ref, id, type, value}. Independent of the question map, so
+// it reveals the true value under each field ref (used to debug matching).
+function tfCompactResponses(items) {
+  return items.map((it, i) => ({
+    i,
+    hidden: it.hidden || {},
+    answers: (it.answers || []).map(a => ({
+      ref: a.field && a.field.ref,
+      id:  a.field && a.field.id,
+      type: a.type,
+      value: (tfNumeric(a) != null) ? tfNumeric(a) : (a.text ?? (a.choice && a.choice.label) ?? a.boolean ?? null),
+    })),
+  }));
 }
 
 // Step 2 render: averages for the chosen project (only once one is selected).
