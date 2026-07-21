@@ -978,6 +978,17 @@ body {
   color: var(--text);
   letter-spacing: -0.01em;
 }
+
+/* Setup tab — summary of the currently imported data */
+.setup-summary { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 18px 22px; margin-bottom: 22px; max-width: 640px; }
+.setup-summary-h { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.setup-summary-sub { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.setup-blocklist { display: flex; flex-direction: column; gap: 2px; }
+.setup-block-row { display: flex; justify-content: space-between; font-size: 12px;
+  padding: 4px 0; border-bottom: 1px solid var(--border); }
+.setup-block-row:last-child { border-bottom: none; }
+.setup-block-count { color: var(--muted); font-family: 'DM Mono', monospace; }
 .howto-steps { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .howto-step {
   background: var(--surface2);
@@ -1439,3 +1450,10 @@ body {
   border-radius:6px;padding:8px 12px;font-size:13px;margin:8px 0 12px;}
 .as-badge{display:inline-block;background:var(--red);color:#fff;border-radius:9px;
   padding:0 6px;font-size:11px;font-weight:700;margin-left:4px;}
+
+/* Assessment — Configuration (read-only view of the connected Typeform) */
+.as-config-btn{flex:0 0 auto;font-size:12px;padding:5px 12px;white-space:nowrap;}
+.as-config-panel{margin-top:10px;padding:12px 14px;background:var(--surface);
+  border:1px solid var(--border);border-radius:8px;font-size:12px;max-width:420px;}
+.as-config-row{padding:2px 0;}
+.as-config-note{margin-top:8px;color:var(--muted);font-size:11px;}

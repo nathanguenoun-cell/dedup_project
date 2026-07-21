@@ -13,13 +13,14 @@ let PROJECT = { id: null, name: '', status: 'draft', isOwner: false, members: []
 // Project pipeline modules shown in the header flow. 'dedup' is the live module;
 // the rest are scaffolded placeholders that future features will fill in.
 const STAGES = [
+  { key: 'setup',      label: 'Setup' },
   { key: 'dedup',      label: 'Deduplication' },
   { key: 'takeaways',  label: 'Key Takeaways' },
   { key: 'assessment', label: 'Assessment' },
   { key: 'roadmap',    label: 'Roadmap' },
   { key: 'deck',       label: 'Final Deck' },
 ];
-const STAGE_BUILT = { dedup: true, takeaways: true, assessment: true, roadmap: true, deck: true };
+const STAGE_BUILT = { setup: true, dedup: true, takeaways: true, assessment: true, roadmap: true, deck: true };
 
 let state = {
   stage: 'dedup',         // which pipeline module is open (see STAGES)
@@ -295,6 +296,11 @@ function switchStage(stage) {
 function renderStage() {
   const sidebar = document.getElementById('projectSidebar');
   document.getElementById('actionRow').style.display = 'none';
+  if (state.stage === 'setup') {
+    if (sidebar) sidebar.style.display = 'none';
+    renderSetup();
+    return;
+  }
   if (state.stage === 'dedup') {
     if (sidebar) sidebar.style.display = '';
     renderTab();
@@ -591,11 +597,51 @@ async function renderAssessment() {
         <p class="tk-sub">Pull the self-assessment responses from Typeform, pick the project,
            then position the Atscale score on each row.</p>
         <button class="btn-primary" id="asFetchBtn" onclick="assessmentFetch()">Fetch responses</button>
+        ${assessmentConfigButtonHtml()}
         <div id="asPick" style="margin-top:14px;"></div>
       </div>`;
     return;
   }
   renderAssessmentBoard();
+}
+
+// ── Configuration: read-only view of which Typeform is connected ──
+// The form is fixed server-side (TYPEFORM_TOKEN/TYPEFORM_FORM_ID); this just
+// surfaces which one, on demand, without re-fetching every render.
+let _asConfigInfo = null;   // {title, id}, cached once fetched this session
+
+function assessmentConfigButtonHtml() {
+  return `
+    <button class="btn-ghost as-config-btn" onclick="toggleAssessmentConfig()">⚙ Configuration</button>
+    <div id="asConfigPanel" class="as-config-panel" style="display:none;"></div>`;
+}
+
+async function toggleAssessmentConfig() {
+  const el = document.getElementById('asConfigPanel');
+  if (!el) return;
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  if (_asConfigInfo) { renderAssessmentConfigPanel(); return; }
+  el.textContent = 'Loading…';
+  try {
+    const res = await api.typeformForm();
+    if (!res || res.available === false) throw new Error((res && res.error) || 'Typeform not configured.');
+    _asConfigInfo = { title: (res.data && res.data.title) || '(untitled form)', id: (res.data && res.data.id) || '' };
+  } catch (e) {
+    el.innerHTML = `<span style="color:var(--red)">${escapeHtml(e.message)}</span>`;
+    return;
+  }
+  renderAssessmentConfigPanel();
+}
+
+function renderAssessmentConfigPanel() {
+  const el = document.getElementById('asConfigPanel');
+  if (!el || !_asConfigInfo) return;
+  el.innerHTML = `
+    <div class="as-config-row"><b>Connected form:</b> ${escapeHtml(_asConfigInfo.title)}</div>
+    <div class="as-config-row"><b>Form ID:</b> <span style="font-family:'DM Mono',monospace;">${escapeHtml(_asConfigInfo.id)}</span></div>
+    ${state.assessment.project ? `<div class="as-config-row"><b>Project selected:</b> ${escapeHtml(state.assessment.project)}</div>` : ''}
+    <div class="as-config-note">The connected form is fixed by the server configuration — not editable here.</div>`;
 }
 
 async function assessmentFetch() {
@@ -680,7 +726,10 @@ function renderAssessmentBoard() {
 
   panel.innerHTML = `
     <div class="tk-wrap as-page">
-      <h2 class="tk-title as-maintitle">${escapeHtml(blk.block)}</h2>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+        <h2 class="tk-title as-maintitle" style="margin-bottom:0;">${escapeHtml(blk.block)}</h2>
+        ${assessmentConfigButtonHtml()}
+      </div>
       <div class="as-sub">${escapeHtml(a.project)}
         · block avg Client ${cAvg == null ? '–' : cAvg.toFixed(1)} · AtScale ${aAvg == null ? '–' : aAvg.toFixed(1)}
         · <span class="as-legend as-dot-client"></span> Client (Typeform, fixed)
@@ -1719,6 +1768,62 @@ function setBlock(b) { state.currentBlock = b; renderTab(); }
 // TAB 1 — ALL ISSUES (import + table + start analysis)
 // ═══════════════════════════════════════════════════════════════
 
+// Drop zone + column mapper (file-loader.js drives showColumnMapper / applyColumnMap).
+// Shared by the dedup "All Issues" empty state and the Setup tab.
+function importZoneHtml() {
+  return `
+    <div id="dropZone" class="drop-zone"
+         ondragover="event.preventDefault();this.classList.add('drag-over')"
+         ondragleave="this.classList.remove('drag-over')"
+         ondrop="handleDrop(event)">
+      <div style="font-size:28px;margin-bottom:8px;">⬆</div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Drag and drop your .xlsx / .xls / .csv here</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">or</div>
+      <button class="btn-primary" onclick="document.getElementById('fileInput').click()">Choose a file</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleFileInput(event)">
+      <div id="fileStatus" style="margin-top:10px;font-size:12px;font-family:'DM Mono',monospace;"></div>
+    </div>
+    <div id="columnMapSection" style="display:none;margin-top:16px;">
+      <div class="howto-title" style="font-size:14px;">🗂 Map the columns</div>
+      <div id="columnMapFields"></div>
+      <button class="btn-primary" style="margin-top:16px;" onclick="applyColumnMap()">Confirm mapping →</button>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STAGE 0 — SETUP (review the current import, or replace it)
+// ═══════════════════════════════════════════════════════════════
+
+function renderSetup() {
+  const panel = document.getElementById('mainPanel');
+  const hasData = RAW_DATA.length > 0;
+
+  const blockRows = BLOCKS.map(b => `
+    <div class="setup-block-row">
+      <span>${escapeHtml(b.replace(/^\d+\.\s*/, ''))}</span>
+      <span class="setup-block-count">${BLOCK_COUNTS[b] || 0}</span>
+    </div>`).join('');
+
+  panel.innerHTML = `
+    <div class="tk-wrap">
+      <h2 class="tk-title">Setup</h2>
+      <p class="tk-sub">Review the data currently imported into this project, or import a
+         file to replace it.</p>
+      ${hasData ? `
+        <div class="setup-summary">
+          <div class="setup-summary-h">Current import</div>
+          <div class="setup-summary-sub">${escapeHtml(state.fileName || '(unnamed file)')} ·
+            ${RAW_DATA.length} issues · ${BLOCKS.length} building blocks</div>
+          <div class="setup-blocklist">${blockRows}</div>
+        </div>` : ''}
+      <div class="howto-panel" style="max-width:640px;text-align:left;">
+        <div class="howto-title">${hasData ? '🔄 Re-import (replaces the current data)' : '📂 Import the input data (Excel / CSV)'}</div>
+        ${importZoneHtml()}
+      </div>
+    </div>`;
+  injectDropStyles();
+}
+
 function renderIssuesTab() {
   const panel = document.getElementById('mainPanel');
 
@@ -1727,22 +1832,7 @@ function renderIssuesTab() {
     panel.innerHTML = `
       <div class="howto-panel" style="max-width:640px;margin:24px auto;text-align:left;">
         <div class="howto-title">📂 Import the input data (Excel / CSV)</div>
-        <div id="dropZone" class="drop-zone"
-             ondragover="event.preventDefault();this.classList.add('drag-over')"
-             ondragleave="this.classList.remove('drag-over')"
-             ondrop="handleDrop(event)">
-          <div style="font-size:28px;margin-bottom:8px;">⬆</div>
-          <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Drag and drop your .xlsx / .xls / .csv here</div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">or</div>
-          <button class="btn-primary" onclick="document.getElementById('fileInput').click()">Choose a file</button>
-          <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleFileInput(event)">
-          <div id="fileStatus" style="margin-top:10px;font-size:12px;font-family:'DM Mono',monospace;"></div>
-        </div>
-        <div id="columnMapSection" style="display:none;margin-top:16px;">
-          <div class="howto-title" style="font-size:14px;">🗂 Map the columns</div>
-          <div id="columnMapFields"></div>
-          <button class="btn-primary" style="margin-top:16px;" onclick="applyColumnMap()">Confirm mapping →</button>
-        </div>
+        ${importZoneHtml()}
       </div>`;
     injectDropStyles();
     return;
@@ -1799,7 +1889,7 @@ function onDataLoaded(parsedRows, fileName) {
   PROJECT.status = 'draft';
   saveProjectData(true);
   updateHeader();
-  renderTab();
+  renderStage();   // re-render whichever stage triggered the import (Setup or dedup)
 }
 
 function confirmReanalyze() {
