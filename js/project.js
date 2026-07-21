@@ -600,14 +600,17 @@ async function renderAssessment() {
         ${assessmentConfigButtonHtml()}
         <div id="asPick" style="margin-top:14px;"></div>
       </div>`;
+    // Responses already fetched this session (e.g. after changing the project) —
+    // skip the re-fetch and show the project picker straight away.
+    if (state.asTypeform) renderAssessmentPick(state.asTypeform.items);
     return;
   }
   renderAssessmentBoard();
 }
 
-// ── Configuration: read-only view of which Typeform is connected ──
-// The form is fixed server-side (TYPEFORM_TOKEN/TYPEFORM_FORM_ID); this just
-// surfaces which one, on demand, without re-fetching every render.
+// ── Configuration: shows the connected Typeform (fixed server-side) and lets
+// the user change which *project* is selected. The form itself is not editable
+// (TYPEFORM_TOKEN/TYPEFORM_FORM_ID); changing the project resets the assessment.
 let _asConfigInfo = null;   // {title, id}, cached once fetched this session
 
 function assessmentConfigButtonHtml() {
@@ -637,11 +640,30 @@ async function toggleAssessmentConfig() {
 function renderAssessmentConfigPanel() {
   const el = document.getElementById('asConfigPanel');
   if (!el || !_asConfigInfo) return;
+  const project = state.assessment.project;
   el.innerHTML = `
     <div class="as-config-row"><b>Connected form:</b> ${escapeHtml(_asConfigInfo.title)}</div>
     <div class="as-config-row"><b>Form ID:</b> <span style="font-family:'DM Mono',monospace;">${escapeHtml(_asConfigInfo.id)}</span></div>
-    ${state.assessment.project ? `<div class="as-config-row"><b>Project selected:</b> ${escapeHtml(state.assessment.project)}</div>` : ''}
-    <div class="as-config-note">The connected form is fixed by the server configuration — not editable here.</div>`;
+    ${project ? `
+      <div class="as-config-row"><b>Project selected:</b> ${escapeHtml(project)}</div>
+      <button class="btn-ghost as-config-btn" style="margin-top:10px;" onclick="assessmentChangeProject()">Change project…</button>
+      <div class="as-config-note">The connected form is fixed server-side. Changing the selected project
+        clears all AtScale scores and the assessment configuration.</div>`
+    : `<div class="as-config-note">The connected form is fixed by the server configuration — not editable here.</div>`}`;
+}
+
+// Change the selected project. Warns first (clears every AtScale score), then
+// resets the assessment config and returns to the project picker.
+function assessmentChangeProject() {
+  const ok = confirm(
+    'Change the selected project?\n\n' +
+    'This resets the whole assessment configuration — every AtScale score you have entered will be cleared.'
+  );
+  if (!ok) return;
+  state.assessment = { project: '', blocks: [], atscale: {} };
+  state.asBlockIdx = 0;
+  saveProjectData(true);
+  renderAssessment();   // back to fetch/pick (uses cached responses if available)
 }
 
 async function assessmentFetch() {
@@ -651,17 +673,25 @@ async function assessmentFetch() {
   try {
     const { items, qmap } = await tfFetchTypeform();
     state.asTypeform = { items, qmap };
-    const projects = tfDistinctProjects(items);
-    pick.innerHTML = `
-      <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Project</label>
-      <select id="asProject" class="filter-select" style="min-width:260px;">
-        <option value="">— Select a project —</option>
-        ${projects.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}
-      </select>
-      <button class="btn-primary" style="margin-left:10px;" onclick="assessmentPick()">Load</button>`;
+    renderAssessmentPick(items);
   } catch (e) {
     pick.innerHTML = `<span style="color:var(--red)">${escapeHtml(e.message)}</span>`;
   } finally { btn.disabled = false; }
+}
+
+// Render the project dropdown into #asPick from already-fetched responses.
+// `selected` pre-selects a project (used when re-picking after a reset).
+function renderAssessmentPick(items, selected) {
+  const pick = document.getElementById('asPick');
+  if (!pick) return;
+  const projects = tfDistinctProjects(items);
+  pick.innerHTML = `
+    <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px;">Project</label>
+    <select id="asProject" class="filter-select" style="min-width:260px;">
+      <option value="">— Select a project —</option>
+      ${projects.map(p => `<option value="${escapeHtml(p)}"${p === selected ? ' selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+    </select>
+    <button class="btn-primary" style="margin-left:10px;" onclick="assessmentPick()">Load</button>`;
 }
 
 function assessmentPick() {
