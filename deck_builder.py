@@ -250,14 +250,15 @@ def update_grades_and_labels(slide, atscale_avg, client_avg, client_name):
                     if _is_grade_value(r.text):
                         r.text = f"{atscale_avg:.1f}"
 
-        for p in shape.text_frame.paragraphs:
-            runs = p.runs
-            if len(runs) >= 2 and 'Grade' in runs[1].text:
-                runs[0].text = 'AtScale'   # top-right grade shows the Atscale average
-                break
-            for r in p.runs:
-                if '[CLIENT]' in r.text:
-                    r.text = r.text.replace('[CLIENT]', client_name)
+        # Top-right grade label → always "AtScale Grade :" (its value cell shows the
+        # Atscale average). Position-based so it works regardless of how the label
+        # text is split into runs across the different slides.
+        if lft > 7.5 and 0.7 < top < 1.1 and 'grade' in text.lower():
+            runs = [r for p in shape.text_frame.paragraphs for r in p.runs]
+            if runs:
+                runs[0].text = 'AtScale Grade : '
+                for r in runs[1:]:
+                    r.text = ''
 
     for shape in slide.shapes:
         if shape.top / 914400 > 5.2 and shape.left / 914400 < 1.0:
@@ -718,6 +719,15 @@ def build_deck(template_file, scores, client_name, segment=None, date=None, road
     title_map = {'[CLIENT]': client_name, '[SEGMENT]': segment or '', '[DATE]': date or ''}
     for slide in prs.slides:
         _replace_placeholders(slide, title_map)
+
+    # Slide 19 ("Assessments" client heatmap) title uses the literal word "CLIENT"
+    # (no brackets) — swap it for the real client name too.
+    if GRID_CLIENT_SLIDE - 1 < len(prs.slides):
+        for sh in prs.slides[GRID_CLIENT_SLIDE - 1].shapes:
+            if sh.has_text_frame and 'CLIENT' in sh.text_frame.text:
+                for t_elem in sh.element.findall(f'.//{A_NS}t'):
+                    if t_elem.text and 'CLIENT' in t_elem.text:
+                        t_elem.text = t_elem.text.replace('CLIENT', client_name)
 
     print(f"[deck] takeaways keys in payload: {list((takeaways or {}).keys())}", flush=True)
 
