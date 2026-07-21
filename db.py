@@ -88,6 +88,11 @@ def init_db():
             conn.execute("ALTER TABLE project_data ADD COLUMN roadmap TEXT NOT NULL DEFAULT '{}'")
         if "assessment" not in cols:
             conn.execute("ALTER TABLE project_data ADD COLUMN assessment TEXT NOT NULL DEFAULT '{}'")
+        # Who last touched the project (rename/status change or any dedup/takeaways/
+        # roadmap/assessment save) — surfaced on the dashboard next to updated_at.
+        proj_cols = [r["name"] for r in conn.execute("PRAGMA table_info(projects)")]
+        if "last_modified_by" not in proj_cols:
+            conn.execute("ALTER TABLE projects ADD COLUMN last_modified_by INTEGER REFERENCES users(id)")
         conn.commit()
     finally:
         conn.close()
@@ -198,9 +203,11 @@ def list_projects_for_user(user_id):
             """
             SELECT p.*, pm.role,
                    (SELECT COUNT(*) FROM project_members m WHERE m.project_id = p.id) AS member_count,
-                   (SELECT json_array_length(d.raw_data) FROM project_data d WHERE d.project_id = p.id) AS issue_count
+                   (SELECT json_array_length(d.raw_data) FROM project_data d WHERE d.project_id = p.id) AS issue_count,
+                   lmu.name AS last_modified_by_name
             FROM projects p
             JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ?
+            LEFT JOIN users lmu ON lmu.id = p.last_modified_by
             ORDER BY p.updated_at DESC
             """,
             (user_id,),
@@ -215,7 +222,9 @@ def list_projects_for_user(user_id):
                 "role": r["role"],
                 "member_count": r["member_count"],
                 "issue_count": r["issue_count"] or 0,
+                "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
+                "last_modified_by_name": r["last_modified_by_name"],
             }
             (created if r["owner_id"] == user_id else invited).append(item)
         return {"created": created, "invited": invited}
@@ -223,7 +232,7 @@ def list_projects_for_user(user_id):
         conn.close()
 
 
-def update_project(project_id, name=None, status=None):
+def update_project(project_id, name=None, status=None, user_id=None):
     conn = connect()
     try:
         sets, params = [], []
@@ -234,6 +243,8 @@ def update_project(project_id, name=None, status=None):
         if not sets:
             return
         sets.append("updated_at = ?"); params.append(now())
+        if user_id is not None:
+            sets.append("last_modified_by = ?"); params.append(user_id)
         params.append(project_id)
         conn.execute(f"UPDATE projects SET {', '.join(sets)} WHERE id = ?", params)
         conn.commit()
@@ -320,8 +331,10 @@ def get_project_data(project_id):
         conn.close()
 
 
-def save_project_data(project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks=None, takeaways=None, roadmap=None, assessment=None):
-    """Last-write-wins persistence of the shared dedup state."""
+def save_project_data(project_id, file_name, raw_data, groups, decisions, removed_ids, failed_blocks=None, takeaways=None, roadmap=None, assessment=None, user_id=None):
+    """Last-write-wins persistence of the shared dedup state. When user_id is
+    given, also bumps the owning project's updated_at/last_modified_by so the
+    dashboard reflects real activity, not just renames/status changes."""
     conn = connect()
     try:
         conn.execute(
@@ -354,6 +367,11 @@ def save_project_data(project_id, file_name, raw_data, groups, decisions, remove
                 now(),
             ),
         )
+        if user_id is not None:
+            conn.execute(
+                "UPDATE projects SET updated_at = ?, last_modified_by = ? WHERE id = ?",
+                (now(), user_id, project_id),
+            )
         conn.commit()
     finally:
         conn.close()

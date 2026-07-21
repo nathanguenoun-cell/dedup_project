@@ -9,6 +9,15 @@ function esc(s) {
 
 const STATUS_LABEL = { draft: 'Draft', review: 'In review', completed: 'Completed' };
 
+// Explicit English month names — avoid toLocaleDateString(), whose formatting
+// (and month language) follows the browser's locale.
+const DASH_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtDate(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  return `${DASH_MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
 async function renderDashboard() {
   const v = document.getElementById('viewDashboard');
   v.innerHTML = `
@@ -73,6 +82,11 @@ function projectCard(p) {
         <span>${p.member_count} member${p.member_count > 1 ? 's' : ''}</span>
         <span>·</span>
         <span>${p.role === 'owner' ? 'Owner' : 'Member'}</span>
+      </div>
+      <div class="project-card-dates">
+        <span>Created ${fmtDate(p.created_at)}</span>
+        <span>·</span>
+        <span>Updated ${fmtDate(p.updated_at)}${p.last_modified_by_name ? ' by ' + esc(p.last_modified_by_name) : ''}</span>
       </div>
     </div>`;
 }

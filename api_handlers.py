@@ -119,7 +119,7 @@ def _patch_project(user, pid, body):
     status = body.get("status")
     if status is not None and status not in ("draft", "review", "completed"):
         return _err(400, "Invalid status.")
-    db.update_project(pid, name=name, status=status)
+    db.update_project(pid, name=name, status=status, user_id=user["id"])
     return _ok({"ok": True})
 
 
@@ -144,10 +144,11 @@ def _save_data(user, pid, body):
         body.get("takeaways", {}),
         body.get("roadmap", {}),
         body.get("assessment", {}),
+        user_id=user["id"],
     )
     status = body.get("status")
     if status in ("draft", "review", "completed"):
-        db.update_project(pid, status=status)
+        db.update_project(pid, status=status, user_id=user["id"])
     return _ok({"ok": True})
 
 

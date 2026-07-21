@@ -1237,6 +1237,15 @@ body {
   color: var(--muted);
   flex-wrap: wrap;
 }
+.project-card-dates {
+  display: flex;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0.75;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
 
 /* ── STATUS PILLS ── */
 .pstatus {
