@@ -284,6 +284,18 @@ function renderFlow() {
 
 function switchStage(stage) {
   if (state.stage === stage) return;
+  // Warn only when actually leaving Assessment for a later step — not on
+  // arrival, which would be misleading before the user has had a chance to
+  // fill anything in.
+  if (state.stage === 'assessment' && stage !== 'assessment') {
+    const missing = assessmentMissing();
+    if (missing.length && !confirm(
+      `${missing.length} AtScale note(s) are still missing in the Assessment step.\n\n` +
+      'The deck cannot be generated until every one is filled. Continue anyway?'
+    )) {
+      return;   // stay on Assessment
+    }
+  }
   state.stage = stage;
   renderFlow();
   // The dedup sub-tabs only belong to the Deduplication module.
@@ -752,7 +764,6 @@ function renderAssessmentBoard() {
 
   const cAvg = avgOf(blk.rows.map(r => r.client));
   const aAvg = avgOf(blk.rows.map(r => a.atscale[r.fieldId]));
-  const missTotal = assessmentMissing().length;
 
   panel.innerHTML = `
     <div class="tk-wrap as-page">
@@ -764,7 +775,6 @@ function renderAssessmentBoard() {
         · block avg Client ${cAvg == null ? '–' : cAvg.toFixed(1)} · AtScale ${aAvg == null ? '–' : aAvg.toFixed(1)}
         · <span class="as-legend as-dot-client"></span> Client (Typeform, fixed)
         · <span class="as-legend as-dot-atscale"></span> AtScale (drag or type)</div>
-      ${missTotal ? `<div class="as-warn">⚠ ${missTotal} AtScale note(s) still missing across all building blocks — the deck cannot be generated until every one is filled.</div>` : ''}
       <div class="tk-tabs">${tabs}</div>
       <div class="as-head">
         <div class="as-head-l"></div>
