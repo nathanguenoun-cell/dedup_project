@@ -17,7 +17,7 @@ from collections import defaultdict
 from lxml import etree
 from pptx import Presentation
 from pptx.util import Pt
-from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR, MSO_AUTO_SIZE
 from pptx.dml.color import RGBColor
 
@@ -618,6 +618,38 @@ def _square_aliases():
     return _SQUARE_ALIASES
 
 
+def _leaves(sh):
+    """Yield every non-group leaf shape within `sh` (recursing into groups).
+    A plain shape yields itself. Google-Slides exports wrap cells/labels in
+    groups, and pptx's `slide.shapes` does not descend into them."""
+    if sh.shape_type == MSO_SHAPE_TYPE.GROUP:
+        for s in sh.shapes:
+            yield from _leaves(s)
+    else:
+        yield sh
+
+
+def _container_info(sh):
+    """(abs_L, abs_T, abs_W in inches, combined_text, [leaf shapes]) for a
+    top-level shape or group. Position/size come from the container's own box
+    (already absolute on the slide); text is joined from all leaves so a group
+    whose label lives in a sibling text box is still readable."""
+    leaves = list(_leaves(sh))
+    text = ' '.join(s.text_frame.text.strip() for s in leaves
+                    if s.has_text_frame and s.text_frame.text.strip())
+    L = (sh.left or 0) / 914400
+    T = (sh.top or 0) / 914400
+    W = (sh.width or 0) / 914400
+    return L, T, W, text, leaves
+
+
+def _fill_hex(sh):
+    try:
+        return str(sh.fill.fore_color.rgb)
+    except Exception:
+        return None
+
+
 def _diagnosis_squares_by_row(prs):
     """{pillar: [square_key per topic row, in row (top) order]} read from the
     Diagnosis Synthesis slides."""
@@ -627,14 +659,11 @@ def _diagnosis_squares_by_row(prs):
         slide = prs.slides[slide_num - 1]
         labels, rows = [], []
         for sh in slide.shapes:
-            if not sh.has_text_frame or sh.left is None or sh.top is None:
+            if sh.left is None or sh.top is None:
                 continue
-            txt = sh.text_frame.text.strip()
+            L, T, W, txt, _ = _container_info(sh)
             if not txt:
                 continue
-            L = sh.left / 914400
-            T = sh.top / 914400
-            W = (sh.width or 0) / 914400
             if 0.4 < L < 0.75 and 0.9 < W < 1.4 and T > 1.5:      # sub-category label (left box)
                 labels.append((T, txt))
             elif 1.6 < L < 2.0 and T > 1.5:                        # topic row (question)
@@ -656,32 +685,41 @@ def _band(vals):
     return min(5, max(1, int(avg + 0.5)))          # nearest (round half up), clamped 1..5
 
 
-def _is_grid_cell(sh):
-    try:
-        return sh.has_text_frame and str(sh.fill.fore_color.rgb) == GRID_TEMPLATE_FILL
-    except Exception:
-        return False
-
-
 def _fill(sh, hex_color):
     sh.fill.solid()
     sh.fill.fore_color.rgb = RGBColor.from_string(hex_color)
 
 
+def _grid_cells(slide):
+    """Yield (abs_T, abs_L, text, [fill shapes]) for each heatmap cell: a
+    top-level container (shape or group) holding at least one shape painted
+    with the template fill. Handles both the flat template (cell == a single
+    filled+labelled shape) and the re-adapted one (cell == a group whose fill
+    and label live in separate leaves)."""
+    for sh in slide.shapes:
+        if sh.left is None or sh.top is None:
+            continue
+        L, T, _, txt, leaves = _container_info(sh)
+        fills = [s for s in leaves if _fill_hex(s) == GRID_TEMPLATE_FILL]
+        if fills:
+            yield T, L, txt, fills
+
+
 def _paint_grid_slide(slide, bands):
     """Paint the sub-category cells with their band colour, and colour the
     top-right legend cells 1..5 so the scale matches."""
-    legend = sorted((sh for sh in slide.shapes
-                     if _is_grid_cell(sh) and (sh.top or 0) / 914400 < 0.6),
-                    key=lambda s: s.left or 0)
-    for i, sh in enumerate(legend[:5]):
-        _fill(sh, BAND_COLORS[i + 1])
-    for sh in slide.shapes:
-        if not _is_grid_cell(sh) or (sh.top or 0) / 914400 < 0.6:
+    cells = list(_grid_cells(slide))
+    legend = sorted((c for c in cells if c[0] < 0.6), key=lambda c: c[1])
+    for i, (_, _, _, fills) in enumerate(legend[:5]):
+        for f in fills:
+            _fill(f, BAND_COLORS[i + 1])
+    for T, _, txt, fills in cells:
+        if T < 0.6:
             continue
-        b = bands.get(_sq_key(sh.text_frame.text.strip()))
+        b = bands.get(_sq_key(txt))
         if b is not None:
-            _fill(sh, BAND_COLORS[b])
+            for f in fills:
+                _fill(f, BAND_COLORS[b])
 
 
 def color_assessment_grids(prs, scores):
