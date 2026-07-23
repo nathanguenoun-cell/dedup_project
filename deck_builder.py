@@ -705,21 +705,42 @@ def _grid_cells(slide):
             yield T, L, txt, fills
 
 
+def _read_scale_palette(slide):
+    """Read the 1..5 band colours from the colour scale (legend) at the top of an
+    Assessments slide, so the data cells match whatever scale the template shows.
+    The scale is the row of small swatches in the top-right; left→right = band 1→5.
+    Returns {1: hex, ..., 5: hex}, or None if the 5 swatches aren't found (then the
+    caller falls back to the built-in BAND_COLORS)."""
+    swatches = []
+    for sh in slide.shapes:
+        if sh.left is None or sh.top is None:
+            continue
+        T = (sh.top or 0) / 914400
+        W = (sh.width or 0) / 914400
+        if T >= 0.6 or not (0.1 < W < 0.5):        # top band, small square swatch
+            continue
+        fills = [_fill_hex(s) for s in _leaves(sh) if _fill_hex(s)]
+        if len(fills) == 1:
+            swatches.append((sh.left or 0, fills[0]))
+    swatches.sort()
+    if len(swatches) >= 5:
+        picked = swatches[-5:]                      # the scale sits at the far right
+        return {i + 1: hexv for i, (_, hexv) in enumerate(picked)}
+    return None
+
+
 def _paint_grid_slide(slide, bands):
-    """Paint the sub-category cells with their band colour, and colour the
-    top-right legend cells 1..5 so the scale matches."""
-    cells = list(_grid_cells(slide))
-    legend = sorted((c for c in cells if c[0] < 0.6), key=lambda c: c[1])
-    for i, (_, _, _, fills) in enumerate(legend[:5]):
-        for f in fills:
-            _fill(f, BAND_COLORS[i + 1])
-    for T, _, txt, fills in cells:
-        if T < 0.6:
+    """Paint the sub-category cells with the band colour taken from the template's
+    own colour scale (legend). The scale itself is left untouched — it is authored
+    in the template, not overwritten here."""
+    palette = _read_scale_palette(slide) or BAND_COLORS
+    for T, _, txt, fills in _grid_cells(slide):
+        if T < 0.6:                                 # skip the legend/scale row
             continue
         b = bands.get(_sq_key(txt))
         if b is not None:
             for f in fills:
-                _fill(f, BAND_COLORS[b])
+                _fill(f, palette[b])
 
 
 def color_assessment_grids(prs, scores):
