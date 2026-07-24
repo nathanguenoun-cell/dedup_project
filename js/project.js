@@ -13,14 +13,13 @@ let PROJECT = { id: null, name: '', status: 'draft', isOwner: false, members: []
 // Project pipeline modules shown in the header flow. 'dedup' is the live module;
 // the rest are scaffolded placeholders that future features will fill in.
 const STAGES = [
-  { key: 'setup',      label: 'Setup' },
   { key: 'dedup',      label: 'Deduplication' },
   { key: 'takeaways',  label: 'Key Takeaways' },
   { key: 'roadmap',    label: 'Roadmap' },
   { key: 'assessment', label: 'Assessment' },
   { key: 'deck',       label: 'Final Deck' },
 ];
-const STAGE_BUILT = { setup: true, dedup: true, takeaways: true, assessment: true, roadmap: true, deck: true };
+const STAGE_BUILT = { dedup: true, takeaways: true, assessment: true, roadmap: true, deck: true };
 
 let state = {
   stage: 'dedup',         // which pipeline module is open (see STAGES)
@@ -308,11 +307,6 @@ function switchStage(stage) {
 function renderStage() {
   const sidebar = document.getElementById('projectSidebar');
   document.getElementById('actionRow').style.display = 'none';
-  if (state.stage === 'setup') {
-    if (sidebar) sidebar.style.display = 'none';
-    renderSetup();
-    return;
-  }
   if (state.stage === 'dedup') {
     if (sidebar) sidebar.style.display = '';
     renderTab();
@@ -1852,36 +1846,6 @@ function importZoneHtml() {
 // ═══════════════════════════════════════════════════════════════
 // STAGE 0 — SETUP (review the current import, or replace it)
 // ═══════════════════════════════════════════════════════════════
-
-function renderSetup() {
-  const panel = document.getElementById('mainPanel');
-  const hasData = RAW_DATA.length > 0;
-
-  const blockRows = BLOCKS.map(b => `
-    <div class="setup-block-row">
-      <span>${escapeHtml(b.replace(/^\d+\.\s*/, ''))}</span>
-      <span class="setup-block-count">${BLOCK_COUNTS[b] || 0}</span>
-    </div>`).join('');
-
-  panel.innerHTML = `
-    <div class="tk-wrap">
-      <h2 class="tk-title">Setup</h2>
-      <p class="tk-sub">Review the data currently imported into this project, or import a
-         file to replace it.</p>
-      ${hasData ? `
-        <div class="setup-summary">
-          <div class="setup-summary-h">Current import</div>
-          <div class="setup-summary-sub">${escapeHtml(state.fileName || '(unnamed file)')} ·
-            ${RAW_DATA.length} issues · ${BLOCKS.length} building blocks</div>
-          <div class="setup-blocklist">${blockRows}</div>
-        </div>` : ''}
-      <div class="howto-panel" style="max-width:640px;text-align:left;">
-        <div class="howto-title">${hasData ? '🔄 Re-import (replaces the current data)' : '📂 Import the input data (Excel / CSV)'}</div>
-        ${importZoneHtml()}
-      </div>
-    </div>`;
-  injectDropStyles();
-}
 
 function renderIssuesTab() {
   const panel = document.getElementById('mainPanel');
