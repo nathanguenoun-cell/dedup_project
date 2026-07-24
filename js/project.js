@@ -604,7 +604,6 @@ async function renderAssessment() {
         <p class="tk-sub">Pull the self-assessment responses from Typeform, pick the project,
            then position the Atscale score on each row.</p>
         <button class="btn-primary" id="asFetchBtn" onclick="assessmentFetch()">Fetch responses</button>
-        ${assessmentConfigButtonHtml()}
         <div id="asPick" style="margin-top:14px;"></div>
       </div>`;
     // Responses already fetched this session (e.g. after changing the project) —
@@ -613,64 +612,6 @@ async function renderAssessment() {
     return;
   }
   renderAssessmentBoard();
-}
-
-// ── Configuration: shows the connected Typeform (fixed server-side) and lets
-// the user change which *project* is selected. The form itself is not editable
-// (TYPEFORM_TOKEN/TYPEFORM_FORM_ID); changing the project resets the assessment.
-let _asConfigInfo = null;   // {title, id}, cached once fetched this session
-
-function assessmentConfigButtonHtml() {
-  return `
-    <button class="btn-ghost as-config-btn" onclick="toggleAssessmentConfig()">⚙ Configuration</button>
-    <div id="asConfigPanel" class="as-config-panel" style="display:none;"></div>`;
-}
-
-async function toggleAssessmentConfig() {
-  const el = document.getElementById('asConfigPanel');
-  if (!el) return;
-  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
-  el.style.display = 'block';
-  if (_asConfigInfo) { renderAssessmentConfigPanel(); return; }
-  el.textContent = 'Loading…';
-  try {
-    const res = await api.typeformForm();
-    if (!res || res.available === false) throw new Error((res && res.error) || 'Typeform not configured.');
-    _asConfigInfo = { title: (res.data && res.data.title) || '(untitled form)', id: (res.data && res.data.id) || '' };
-  } catch (e) {
-    el.innerHTML = `<span style="color:var(--red)">${escapeHtml(e.message)}</span>`;
-    return;
-  }
-  renderAssessmentConfigPanel();
-}
-
-function renderAssessmentConfigPanel() {
-  const el = document.getElementById('asConfigPanel');
-  if (!el || !_asConfigInfo) return;
-  const project = state.assessment.project;
-  el.innerHTML = `
-    <div class="as-config-row"><b>Connected form:</b> ${escapeHtml(_asConfigInfo.title)}</div>
-    <div class="as-config-row"><b>Form ID:</b> <span style="font-family:'DM Mono',monospace;">${escapeHtml(_asConfigInfo.id)}</span></div>
-    ${project ? `
-      <div class="as-config-row"><b>Project selected:</b> ${escapeHtml(project)}</div>
-      <button class="btn-ghost as-config-btn" style="margin-top:10px;" onclick="assessmentChangeProject()">Change project…</button>
-      <div class="as-config-note">The connected form is fixed server-side. Changing the selected project
-        clears all AtScale scores and the assessment configuration.</div>`
-    : `<div class="as-config-note">The connected form is fixed by the server configuration — not editable here.</div>`}`;
-}
-
-// Change the selected project. Warns first (clears every AtScale score), then
-// resets the assessment config and returns to the project picker.
-function assessmentChangeProject() {
-  const ok = confirm(
-    'Change the selected project?\n\n' +
-    'This resets the whole assessment configuration — every AtScale score you have entered will be cleared.'
-  );
-  if (!ok) return;
-  state.assessment = { project: '', blocks: [], atscale: {} };
-  state.asBlockIdx = 0;
-  saveProjectData(true);
-  renderAssessment();   // back to fetch/pick (uses cached responses if available)
 }
 
 async function assessmentFetch() {
@@ -762,10 +703,7 @@ function renderAssessmentBoard() {
 
   panel.innerHTML = `
     <div class="tk-wrap as-page">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
-        <h2 class="tk-title as-maintitle" style="margin-bottom:0;">${escapeHtml(blk.block)}</h2>
-        ${assessmentConfigButtonHtml()}
-      </div>
+      <h2 class="tk-title as-maintitle" style="margin-bottom:0;">${escapeHtml(blk.block)}</h2>
       <div class="as-sub">${escapeHtml(a.project)}
         · block avg Client ${cAvg == null ? '–' : cAvg.toFixed(1)} · AtScale ${aAvg == null ? '–' : aAvg.toFixed(1)}
         · <span class="as-legend as-dot-client"></span> Client (Typeform, fixed)
