@@ -519,7 +519,12 @@ body {
 .tk-star.locked, .tk-star:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* ── MAIN LAYOUT ── */
-.main { display: flex; height: calc(100vh - 110px); }
+/* Project view is a fixed-height flex column: the header takes its natural
+   height (however many rows it wraps to) and .main fills the exact remainder,
+   so the action bar is always visible and only the panel scrolls. */
+#viewProject { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+#viewProject .header { flex-shrink: 0; }
+.main { display: flex; flex: 1 1 auto; min-height: 0; }
 
 /* ── SIDEBAR ── */
 .sidebar {
@@ -581,10 +586,17 @@ body {
 .badge-primary { background: rgba(42,65,229,0.1); color: var(--accent); border: 1px solid rgba(42,65,229,0.25); }
 
 /* ── CONTENT AREA ── */
-.content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 
 /* ── MAIN PANEL ── */
-.panel { flex: 1; overflow-y: auto; padding: 24px 28px; }
+.panel { flex: 1; overflow-y: auto; padding: 24px 28px; min-height: 0; }
+
+/* Duplicate Review: pin the filters + reasoning, scroll only the cards. The
+   panel stops scrolling and becomes a flex column; .review-scroll is the sole
+   scroll region. Added/removed per-render (see renderReviewPanel). */
+.panel.panel-review { overflow: hidden; display: flex; flex-direction: column; padding: 0; }
+.panel.panel-review .review-fixed { flex-shrink: 0; padding: 24px 28px 4px; }
+.panel.panel-review .review-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 28px 22px; }
 
 /* ── WELCOME / START ── */
 .start-screen {

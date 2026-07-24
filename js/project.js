@@ -307,6 +307,7 @@ function switchStage(stage) {
 function renderStage() {
   const sidebar = document.getElementById('projectSidebar');
   document.getElementById('actionRow').style.display = 'none';
+  document.getElementById('mainPanel').classList.remove('panel-review');
   if (state.stage === 'dedup') {
     if (sidebar) sidebar.style.display = '';
     renderTab();
@@ -1757,6 +1758,7 @@ function switchTab(tab) {
 function renderTab() {
   renderTabs();
   document.getElementById('actionRow').style.display = 'none';
+  document.getElementById('mainPanel').classList.remove('panel-review');
   if (state.tab === 'issues') renderIssuesTab();
   else if (state.tab === 'review') renderReviewPanel();
   else if (state.tab === 'result') renderResultTab();
@@ -2113,6 +2115,7 @@ async function retryFailedBlocks() {
   if (!blocks.length) return;
   const panel = document.getElementById('mainPanel');
   document.getElementById('actionRow').style.display = 'none';
+  panel.classList.remove('panel-review');
   panel.innerHTML = `<div class="progress-screen">
     <div class="progress-ring"></div>
     <div class="progress-title">Retrying ${blocks.length} block(s)…</div>
@@ -2151,6 +2154,9 @@ async function retryFailedBlocks() {
 function renderReviewPanel() {
   const panel = document.getElementById('mainPanel');
   const actionRow = document.getElementById('actionRow');
+  // Default to the normal scrolling panel; the main path below opts into the
+  // pinned-filters layout by re-adding this class.
+  panel.classList.remove('panel-review');
 
   if (!state.groups.length) {
     panel.innerHTML = failedBanner() + (state.failedBlocks && state.failedBlocks.length
@@ -2196,7 +2202,10 @@ function renderReviewPanel() {
     ? `<span class="badge badge-dup" style="background:rgba(79,127,255,.12);color:var(--accent);border-color:rgba(79,127,255,.3);">${memberCount} grouped issues</span>`
     : `<span class="badge badge-dup">pair</span>`;
 
-  panel.innerHTML = failedBanner() + reviewBlockPills() + `
+  panel.classList.add('panel-review');
+  panel.innerHTML = `
+    <div class="review-fixed">
+    ${failedBanner()}${reviewBlockPills()}
     <div class="review-header">
       <div style="font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:600;letter-spacing:-0.01em;color:var(--text);">Duplicate group</div>
       ${sizeTag}${reviewBadge}
@@ -2223,6 +2232,8 @@ function renderReviewPanel() {
       Keeping <strong style="color:var(--green);">${keptCount}</strong> ·
       Removing <strong style="color:var(--red);">${draft.removed.size}</strong> of ${all.length}
     </div>
+    </div>
+    <div class="review-scroll">
     <div class="issues-grid">
       ${all.map((issue, idx) => {
         const kept = !draft.removed.has(issue.id);
@@ -2242,6 +2253,7 @@ function renderReviewPanel() {
           </div>
         </div>`;
       }).join('')}
+    </div>
     </div>`;
 
   actionRow.style.display = 'flex';
