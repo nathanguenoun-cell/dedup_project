@@ -1247,27 +1247,60 @@ body {
   margin-top: 6px;
 }
 
-.project-card-actions {
+/* ── CARD KEBAB MENU ── */
+/* Lift a card whose menu is open so the dropdown sits above sibling cards. */
+.project-card.menu-open { position: relative; z-index: 20; }
+.project-card-top-right { display: flex; align-items: center; gap: 6px; }
+.pcard-menu { position: relative; }
+.pcard-kebab {
   display: flex;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-}
-.pcard-btn {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 7px;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
   background: transparent;
-  border: 1px solid var(--border);
   color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
   cursor: pointer;
   transition: all 0.15s;
 }
-.pcard-btn:hover { border-color: var(--accent); color: var(--accent); }
-.pcard-btn-danger:hover { border-color: #dc2626; color: #dc2626; }
+.pcard-kebab:hover { background: var(--border); color: var(--text); }
+.pcard-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 130px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+  padding: 4px;
+  z-index: 30;
+}
+.pcard-dropdown.open { display: block; }
+.pcard-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.pcard-menu-item:hover { background: var(--border); }
+.pcard-menu-item-danger { color: #dc2626; }
+.pcard-menu-item-danger:hover { background: rgba(220,38,38,0.1); }
 
 /* ── STATUS PILLS ── */
 .pstatus {

@@ -23,6 +23,11 @@ function fmtDate(ts) {
 }
 
 async function renderDashboard() {
+  // Close any open card kebab menu on an outside click (installed once).
+  if (!window._cardMenuListener) {
+    document.addEventListener('click', closeAllCardMenus);
+    window._cardMenuListener = true;
+  }
   const v = document.getElementById('viewDashboard');
   v.innerHTML = `
     <div class="header">
@@ -82,7 +87,18 @@ function projectCard(p) {
     <div class="project-card" onclick="navigate('#/project/${p.id}')">
       <div class="project-card-top">
         <div class="project-card-name">${esc(p.name)}</div>
-        <span class="${statusClass}">${STATUS_LABEL[p.status] || p.status}</span>
+        <div class="project-card-top-right">
+          <span class="${statusClass}">${STATUS_LABEL[p.status] || p.status}</span>
+          <div class="pcard-menu">
+            <button class="pcard-kebab" onclick="toggleCardMenu(event, ${p.id})" aria-label="Project options">⋯</button>
+            <div class="pcard-dropdown" id="cardMenu-${p.id}">
+              <button class="pcard-menu-item" onclick="renameProjectCard(event, ${p.id})">Rename</button>
+              ${p.role === 'owner'
+                ? `<button class="pcard-menu-item pcard-menu-item-danger" onclick="deleteProjectCard(event, ${p.id})">Delete</button>`
+                : ''}
+            </div>
+          </div>
+        </div>
       </div>
       <div class="project-card-meta">
         <span>${p.issue_count} issues</span>
@@ -96,13 +112,31 @@ function projectCard(p) {
         <span>·</span>
         <span>Updated ${fmtDate(p.updated_at)}${p.last_modified_by_name ? ' by ' + esc(p.last_modified_by_name) : ''}</span>
       </div>
-      <div class="project-card-actions">
-        <button class="pcard-btn" onclick="renameProjectCard(event, ${p.id})">Rename</button>
-        ${p.role === 'owner'
-          ? `<button class="pcard-btn pcard-btn-danger" onclick="deleteProjectCard(event, ${p.id})">Delete</button>`
-          : ''}
-      </div>
     </div>`;
+}
+
+// Kebab (⋯) menu on each card. Only one open at a time; a document-level click
+// (installed once in renderDashboard) closes it. stopPropagation keeps the
+// card's navigate() from firing when interacting with the menu.
+function toggleCardMenu(event, id) {
+  event.stopPropagation();
+  const menu = document.getElementById('cardMenu-' + id);
+  if (!menu) return;
+  const wasOpen = menu.classList.contains('open');
+  closeAllCardMenus();
+  if (!wasOpen) {
+    menu.classList.add('open');
+    const card = menu.closest('.project-card');
+    if (card) card.classList.add('menu-open');   // lift above sibling cards
+  }
+}
+
+function closeAllCardMenus() {
+  document.querySelectorAll('.pcard-dropdown.open').forEach(m => {
+    m.classList.remove('open');
+    const card = m.closest('.project-card');
+    if (card) card.classList.remove('menu-open');
+  });
 }
 
 // Rename a project in place. Any member may rename (server-enforced); the button
