@@ -16,8 +16,8 @@ const STAGES = [
   { key: 'setup',      label: 'Setup' },
   { key: 'dedup',      label: 'Deduplication' },
   { key: 'takeaways',  label: 'Key Takeaways' },
-  { key: 'assessment', label: 'Assessment' },
   { key: 'roadmap',    label: 'Roadmap' },
+  { key: 'assessment', label: 'Assessment' },
   { key: 'deck',       label: 'Final Deck' },
 ];
 const STAGE_BUILT = { setup: true, dedup: true, takeaways: true, assessment: true, roadmap: true, deck: true };
@@ -783,6 +783,25 @@ function renderAssessmentBoard() {
       </div>
       ${rows}
     </div>`;
+
+  // Sticky action bar — the explicit "carry forward to the Deck" action.
+  const totalMissing = blocks.reduce((n, b) => n + missOf(b), 0);
+  const actionRow = document.getElementById('actionRow');
+  if (actionRow) {
+    actionRow.innerHTML = `
+      <button class="btn-primary" onclick="confirmAssessment()">Confirm assessment → Deck</button>
+      <span class="action-hint">${
+        totalMissing
+          ? `${totalMissing} AtScale note${totalMissing === 1 ? '' : 's'} still missing across all blocks.`
+          : 'All AtScale notes filled — ready to generate the deck.'
+      }</span>`;
+    actionRow.style.display = 'flex';
+  }
+}
+
+function confirmAssessment() {
+  saveProjectData(true);
+  switchStage('deck');   // switchStage warns if any AtScale note is still missing
 }
 
 function avgOf(xs) {
@@ -1273,7 +1292,7 @@ function renderRoadmapGantt(candidates) {
 
   actionRow.innerHTML = `
     <button class="btn-ghost" onclick="backToRephrase()">← Rephrase</button>
-    <button class="btn-primary" onclick="confirmRoadmap()">Confirm roadmap → Deck</button>
+    <button class="btn-primary" onclick="confirmRoadmap()">Confirm roadmap → Assessment</button>
     <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} · ${plan.cycles} cycles · drag bars to move/resize, ⠿ to reorder, dividers to rebalance</span>`;
   actionRow.style.display = 'flex';
 
@@ -1553,7 +1572,7 @@ function confirmRoadmap() {
   if (state.roadmapSelected.size === 0) return;
   state.roadmapConfirmed = true;
   saveProjectData(true);
-  switchStage('deck');
+  switchStage('assessment');
 }
 
 // ─── Deck module ─────────────────────────────────────────────────
