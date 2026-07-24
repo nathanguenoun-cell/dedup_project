@@ -9,6 +9,10 @@ function esc(s) {
 
 const STATUS_LABEL = { draft: 'Draft', review: 'In review', completed: 'Completed' };
 
+// Projects currently shown on the dashboard, keyed by id — populated on each
+// render and read by the card action handlers (rename / delete).
+let DASH_PROJECTS = {};
+
 // Explicit English month names — avoid toLocaleDateString(), whose formatting
 // (and month language) follows the browser's locale.
 const DASH_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -47,6 +51,10 @@ async function renderDashboard() {
 
   try {
     const { created, invited } = await api.listProjects();
+    // Keep a by-id lookup so the card action handlers don't have to smuggle the
+    // (possibly quote-containing) project name through inline onclick attributes.
+    DASH_PROJECTS = {};
+    [...created, ...invited].forEach(p => { DASH_PROJECTS[p.id] = p; });
     document.getElementById('dashCreated').innerHTML = section('My projects', created, true);
     document.getElementById('dashInvited').innerHTML = section('Invited projects', invited, false);
   } catch (err) {
@@ -88,7 +96,45 @@ function projectCard(p) {
         <span>·</span>
         <span>Updated ${fmtDate(p.updated_at)}${p.last_modified_by_name ? ' by ' + esc(p.last_modified_by_name) : ''}</span>
       </div>
+      <div class="project-card-actions">
+        <button class="pcard-btn" onclick="renameProjectCard(event, ${p.id})">Rename</button>
+        ${p.role === 'owner'
+          ? `<button class="pcard-btn pcard-btn-danger" onclick="deleteProjectCard(event, ${p.id})">Delete</button>`
+          : ''}
+      </div>
     </div>`;
+}
+
+// Rename a project in place. Any member may rename (server-enforced); the button
+// is shown on every card. stopPropagation keeps the card's navigate() from firing.
+async function renameProjectCard(event, id) {
+  event.stopPropagation();
+  const p = DASH_PROJECTS[id];
+  const name = prompt('New project name:', p ? p.name : '');
+  if (name == null) return;                         // cancelled
+  const trimmed = name.trim();
+  if (!trimmed || (p && trimmed === p.name)) return;
+  try {
+    await api.patchProject(id, { name: trimmed });
+    renderDashboard();
+  } catch (err) {
+    alert('Could not rename project: ' + err.message);
+  }
+}
+
+// Delete a project (owner only — the button is only rendered for owners, and the
+// server rejects non-owners regardless).
+async function deleteProjectCard(event, id) {
+  event.stopPropagation();
+  const p = DASH_PROJECTS[id];
+  const label = p ? `"${p.name}"` : 'this project';
+  if (!confirm(`Delete ${label}?\n\nThis permanently removes the project and all its data for everyone. This cannot be undone.`)) return;
+  try {
+    await api.deleteProject(id);
+    renderDashboard();
+  } catch (err) {
+    alert('Could not delete project: ' + err.message);
+  }
 }
 
 async function promptNewProject() {

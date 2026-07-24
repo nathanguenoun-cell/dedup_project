@@ -1247,6 +1247,28 @@ body {
   margin-top: 6px;
 }
 
+.project-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.pcard-btn {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.pcard-btn:hover { border-color: var(--accent); color: var(--accent); }
+.pcard-btn-danger:hover { border-color: #dc2626; color: #dc2626; }
+
 /* ── STATUS PILLS ── */
 .pstatus {
   font-size: 10px;
