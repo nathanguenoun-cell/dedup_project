@@ -390,10 +390,10 @@ function renderKeyTakeaways() {
 
   // Sticky confirm bar — the explicit "carry forward to Roadmap" action.
   actionRow.innerHTML = `
-    <button class="btn-primary" id="tkConfirmBtn" onclick="confirmTakeaways()">
+    <span class="action-hint" id="tkActionHint"></span>
+    <button class="btn-primary" id="tkConfirmBtn" style="margin-left:auto;" onclick="confirmTakeaways()">
       Confirm selections → Roadmap
-    </button>
-    <span class="action-hint" id="tkActionHint"></span>`;
+    </button>`;
   actionRow.style.display = 'flex';
 
   if (state.tkBlockIdx >= _tkBlocks.length) state.tkBlockIdx = 0;
@@ -784,12 +784,12 @@ function renderAssessmentBoard() {
   const actionRow = document.getElementById('actionRow');
   if (actionRow) {
     actionRow.innerHTML = `
-      <button class="btn-primary" onclick="confirmAssessment()">Confirm assessment → Deck</button>
       <span class="action-hint">${
         totalMissing
           ? `${totalMissing} AtScale note${totalMissing === 1 ? '' : 's'} still missing across all blocks.`
           : 'All AtScale notes filled — ready to generate the deck.'
-      }</span>`;
+      }</span>
+      <button class="btn-primary" style="margin-left:auto;" onclick="confirmAssessment()">Confirm assessment → Deck</button>`;
     actionRow.style.display = 'flex';
   }
 }
@@ -942,10 +942,10 @@ function renderRoadmap() {
   if (state.roadmapPhase === 'build') { renderRoadmapGantt(candidates); return; }
 
   actionRow.innerHTML = `
-    <button class="btn-primary" id="rmConfirmBtn" onclick="createRoadmap()">
+    <span class="action-hint" id="rmActionHint"></span>
+    <button class="btn-primary" id="rmConfirmBtn" style="margin-left:auto;" onclick="createRoadmap()">
       Create roadmap →
-    </button>
-    <span class="action-hint" id="rmActionHint"></span>`;
+    </button>`;
   actionRow.style.display = 'flex';
 
   panel.innerHTML = `
@@ -1168,8 +1168,8 @@ function renderRoadmapRephrase(candidates) {
 
   actionRow.innerHTML = `
     <button class="btn-ghost" onclick="backToRoadmapSelect()">← Edit selection</button>
-    <button class="btn-primary" onclick="proceedToGantt()">Build roadmap →</button>
-    <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} — rename before placing on the Gantt</span>`;
+    <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} — rename before placing on the Gantt</span>
+    <button class="btn-primary" style="margin-left:auto;" onclick="proceedToGantt()">Build roadmap →</button>`;
   actionRow.style.display = 'flex';
 
   panel.innerHTML = `
@@ -1287,8 +1287,8 @@ function renderRoadmapGantt(candidates) {
 
   actionRow.innerHTML = `
     <button class="btn-ghost" onclick="backToRephrase()">← Rephrase</button>
-    <button class="btn-primary" onclick="confirmRoadmap()">Confirm roadmap → Assessment</button>
-    <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} · ${plan.cycles} cycles · drag bars to move/resize, ⠿ to reorder, dividers to rebalance</span>`;
+    <span class="action-hint">${items.length} program${items.length === 1 ? '' : 's'} · ${plan.cycles} cycles · drag bars to move/resize, ⠿ to reorder, dividers to rebalance</span>
+    <button class="btn-primary" style="margin-left:auto;" onclick="confirmRoadmap()">Confirm roadmap → Assessment</button>`;
   actionRow.style.display = 'flex';
 
   const legendBlocks = BLOCKS.filter(b => items.some(d => d.block === b));
